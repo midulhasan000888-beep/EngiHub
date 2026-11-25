@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import express from 'express';
 import type { Request, Response } from 'express';
+import http from 'http';
 import crypto from 'crypto';
 import dns from 'dns/promises';
 import net from 'net';
@@ -2301,10 +2302,19 @@ Provide accurate lexical and domain-accurate information:
     process.env.NODE_ENV === 'production' ||
     (!isDevLifecycle && fs.existsSync(path.join(distPath, 'index.html')));
 
+  const httpServer = http.createServer(app);
+
   if (!shouldServeDist) {
+    if (process.env.DISABLE_HMR === undefined) {
+      process.env.DISABLE_HMR = 'true';
+    }
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        ws: { server: httpServer },
+        hmr: process.env.DISABLE_HMR === 'true' ? false : { server: httpServer },
+      },
       appType: 'spa',
     });
     app.use(vite.middlewares);
@@ -2315,7 +2325,7 @@ Provide accurate lexical and domain-accurate information:
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
+  httpServer.listen(PORT, '0.0.0.0', () => {
     console.log(`SUTRO SATHI server listening on http://0.0.0.0:${PORT}`);
   });
 }
