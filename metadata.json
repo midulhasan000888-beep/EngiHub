@@ -1,0 +1,10 @@
+{
+  "name": "SUTRO SATHI (সূত্রসাথী)",
+  "description": "সকল হিসাব, সকল সূত্র, এক প্ল্যাটফর্মে। All-in-one engineering, calculation & productivity platform.",
+  "requestFramePermissions": [
+    "geolocation"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

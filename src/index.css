@@ -1,0 +1,158 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  :root {
+    --font-sans: "Plus Jakarta Sans", "Noto Sans Bengali", system-ui, -apple-system, sans-serif;
+    --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+    --brand-primary: #2563eb;
+    --brand-primary-hover: #1d4ed8;
+    --brand-primary-soft: rgba(37, 99, 235, 0.12);
+    --brand-secondary: #0f766e;
+    --brand-secondary-soft: rgba(15, 118, 110, 0.12);
+  }
+
+  html {
+    font-family: var(--font-sans);
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    font-family: var(--font-sans);
+  }
+}
+
+.bg-brand-primary {
+  background-color: var(--brand-primary) !important;
+}
+.bg-brand-primary:hover {
+  background-color: var(--brand-primary-hover) !important;
+}
+.text-brand-primary {
+  color: var(--brand-primary) !important;
+}
+.border-brand-primary {
+  border-color: var(--brand-primary) !important;
+}
+.bg-brand-soft {
+  background-color: var(--brand-primary-soft) !important;
+}
+.bg-brand-secondary {
+  background-color: var(--brand-secondary) !important;
+}
+.text-brand-secondary {
+  color: var(--brand-secondary) !important;
+}
+.bg-brand-secondary-soft {
+  background-color: var(--brand-secondary-soft) !important;
+}
+.bg-brand-gradient {
+  background-image: linear-gradient(135deg, var(--brand-primary), var(--brand-secondary)) !important;
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+.font-mono-tabular {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Custom subtle scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.35);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.55);
+}
+
+@media print {
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  html,
+  body,
+  #root,
+  .app-shell-root,
+  .app-main-row,
+  .app-main-content,
+  .report-studio-root,
+  .report-workspace-grid,
+  .report-canvas-scroll,
+  .report-pages-stack {
+    display: block !important;
+    overflow: visible !important;
+    height: auto !important;
+    max-height: none !important;
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: none !important;
+    box-shadow: none !important;
+    background: #ffffff !important;
+    color: #0f172a !important;
+    position: static !important;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  .report-page-wrapper {
+    display: block !important;
+    width: 100% !important;
+    height: auto !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    page-break-after: always !important;
+    break-after: page !important;
+  }
+
+  .report-page-wrapper:last-child {
+    page-break-after: auto !important;
+    break-after: auto !important;
+  }
+
+  .print-only-area,
+  .report-page-sheet {
+    margin: 0 auto !important;
+    box-shadow: none !important;
+    transform: none !important;
+    overflow: visible !important;
+  }
+
+  .report-block-item,
+  tr,
+  img,
+  svg {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
+  .report-table-block,
+  table {
+    break-inside: auto !important;
+    page-break-inside: auto !important;
+  }
+
+  thead {
+    display: table-header-group !important;
+  }
+
+  tfoot {
+    display: table-footer-group !important;
+  }
+}

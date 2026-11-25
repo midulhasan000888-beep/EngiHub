@@ -1,0 +1,2063 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global Safety Net (Default Deny)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Connectivity probe endpoint (get-only)
+    match /test/connection {
+      allow get: if true;
+    }
+
+    // =========================================================================
+    // Global Hardened Primitives
+    // =========================================================================
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isBootstrappedAdmin() {
+      return isVerifiedUser() && request.auth.token.email == 'midulhasan000888@gmail.com';
+    }
+
+    function isAdmin() {
+      return isBootstrappedAdmin() || (
+        isVerifiedUser() &&
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isOptionalString(data, key, maxLen) {
+      return !(key in data) || (data[key] is string && data[key].size() <= maxLen);
+    }
+
+    function isOptionalNumber(data, key) {
+      return !(key in data) || (data[key] is number);
+    }
+
+    function isOptionalBoundedList(data, key, maxLen) {
+      return !(key in data) || (data[key] is list && data[key].size() <= maxLen);
+    }
+
+    function isOptionalBool(data, key) {
+      return !(key in data) || (data[key] is bool);
+    }
+
+    // =========================================================================
+    // Validation Blueprints (Anti-Update-Gap Helpers)
+    // =========================================================================
+    function isValidUserProfile(data, userId) {
+      return data.keys().hasAll(['uid', 'email', 'displayName', 'role', 'language', 'theme', 'status', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly([
+          'uid', 'email', 'displayName', 'photoURL', 'role', 'language', 'theme', 'primaryColor', 'secondaryColor', 'themePreset', 'timezone', 'status',
+          'mobile', 'dateOfBirth', 'gender', 'country', 'division', 'district', 'city', 'address',
+          'educationLevel', 'institutionName', 'department', 'subject', 'classOrSemester', 'passingYear', 'qualification',
+          'profession', 'jobTitle', 'companyName', 'workDepartment', 'workExperience', 'skills', 'specialization', 'engineeringDiscipline', 'designation', 'licenseNumber',
+          'accountType', 'storageLimitMb', 'loginCount', 'lastLoginAtIso', 'deletionRequested', 'deletionRequestedAtIso',
+          'defaultCalculator', 'preferredUnitSystem', 'inAppNotifications', 'emailNotifications', 'profileVisibility',
+          'createdAt', 'updatedAt'
+        ])
+        && data.uid is string && data.uid == userId && data.uid.size() <= 128
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 200
+        && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 120
+        && isOptionalString(data, 'photoURL', 300000)
+        && data.role in ['user', 'engineer', 'admin']
+        && data.language in ['en', 'bn']
+        && data.theme in ['light', 'dark']
+        && isOptionalString(data, 'primaryColor', 20)
+        && isOptionalString(data, 'secondaryColor', 20)
+        && isOptionalString(data, 'themePreset', 40)
+        && isOptionalString(data, 'timezone', 80)
+        && data.status in ['active', 'suspended']
+        && isOptionalString(data, 'mobile', 60)
+        && isOptionalString(data, 'dateOfBirth', 30)
+        && isOptionalString(data, 'gender', 40)
+        && isOptionalString(data, 'country', 100)
+        && isOptionalString(data, 'division', 100)
+        && isOptionalString(data, 'district', 100)
+        && isOptionalString(data, 'city', 100)
+        && isOptionalString(data, 'address', 320)
+        && isOptionalString(data, 'educationLevel', 100)
+        && isOptionalString(data, 'institutionName', 200)
+        && isOptionalString(data, 'department', 160)
+        && isOptionalString(data, 'subject', 160)
+        && isOptionalString(data, 'classOrSemester', 100)
+        && isOptionalString(data, 'passingYear', 20)
+        && isOptionalString(data, 'qualification', 160)
+        && isOptionalString(data, 'profession', 160)
+        && isOptionalString(data, 'jobTitle', 160)
+        && isOptionalString(data, 'companyName', 200)
+        && isOptionalString(data, 'workDepartment', 160)
+        && isOptionalString(data, 'workExperience', 80)
+        && isOptionalString(data, 'skills', 320)
+        && isOptionalString(data, 'specialization', 200)
+        && isOptionalString(data, 'engineeringDiscipline', 160)
+        && isOptionalString(data, 'designation', 160)
+        && isOptionalString(data, 'licenseNumber', 120)
+        && (!('accountType' in data) || data.accountType in ['free', 'premium', 'custom'])
+        && isOptionalNumber(data, 'storageLimitMb')
+        && isOptionalNumber(data, 'loginCount')
+        && isOptionalString(data, 'lastLoginAtIso', 40)
+        && isOptionalBool(data, 'deletionRequested')
+        && isOptionalString(data, 'deletionRequestedAtIso', 40)
+        && (!('defaultCalculator' in data) || data.defaultCalculator in ['normal', 'scientific', 'engineering'])
+        && (!('preferredUnitSystem' in data) || data.preferredUnitSystem in ['SI', 'Imperial', 'Mixed'])
+        && isOptionalBool(data, 'inAppNotifications')
+        && isOptionalBool(data, 'emailNotifications')
+        && (!('profileVisibility' in data) || data.profileVisibility in ['private', 'team'])
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidAdminMarker(data, userId) {
+      return data.keys().hasAll(['uid', 'email', 'grantedBy', 'createdAt'])
+        && data.keys().hasOnly(['uid', 'email', 'grantedBy', 'createdAt'])
+        && data.uid is string && data.uid == userId && data.uid.size() <= 128
+        && data.email is string && data.email.size() <= 200
+        && data.grantedBy is string && data.grantedBy.size() <= 128
+        && data.createdAt is timestamp;
+    }
+
+    function isValidRoleDefinition(data, roleId) {
+      return data.keys().hasAll(['id', 'name', 'permissions', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'name', 'permissions', 'updatedAt'])
+        && data.id is string && data.id == roleId && data.id.size() <= 64
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 80
+        && data.permissions is list && data.permissions.size() <= 30
+        && (data.permissions.size() == 0 || (data.permissions[0] is string && data.permissions[0].size() <= 80))
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidCategory(data, categoryId) {
+      return data.keys().hasAll(['id', 'slug', 'nameEn', 'nameBn', 'order', 'enabled', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'slug', 'nameEn', 'nameBn', 'descriptionEn', 'descriptionBn', 'icon', 'order', 'enabled', 'updatedAt'])
+        && data.id is string && data.id == categoryId && data.id.size() <= 64
+        && data.slug is string && data.slug.size() >= 1 && data.slug.size() <= 64
+        && data.nameEn is string && data.nameEn.size() >= 1 && data.nameEn.size() <= 120
+        && data.nameBn is string && data.nameBn.size() >= 1 && data.nameBn.size() <= 120
+        && isOptionalString(data, 'descriptionEn', 400)
+        && isOptionalString(data, 'descriptionBn', 400)
+        && isOptionalString(data, 'icon', 60)
+        && data.order is number
+        && data.enabled is bool
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidCalculator(data, calculatorId) {
+      return data.keys().hasAll(['id', 'categoryId', 'nameEn', 'nameBn', 'formulaDisplay', 'inputs', 'outputs', 'version', 'enabled', 'published', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'categoryId', 'nameEn', 'nameBn', 'descriptionEn', 'descriptionBn', 'formulaDisplay', 'formulaReference', 'explanationEn', 'explanationBn', 'disclaimerEn', 'disclaimerBn', 'inputs', 'outputs', 'conditions', 'exampleInputs', 'version', 'enabled', 'published', 'updatedBy', 'updatedAt'])
+        && data.id is string && data.id == calculatorId && data.id.size() <= 100
+        && data.categoryId is string && data.categoryId.size() >= 1 && data.categoryId.size() <= 64
+        && data.nameEn is string && data.nameEn.size() >= 1 && data.nameEn.size() <= 160
+        && data.nameBn is string && data.nameBn.size() >= 1 && data.nameBn.size() <= 160
+        && isOptionalString(data, 'descriptionEn', 600)
+        && isOptionalString(data, 'descriptionBn', 600)
+        && data.formulaDisplay is string && data.formulaDisplay.size() >= 1 && data.formulaDisplay.size() <= 300
+        && isOptionalString(data, 'formulaReference', 400)
+        && isOptionalString(data, 'explanationEn', 1200)
+        && isOptionalString(data, 'explanationBn', 1200)
+        && isOptionalString(data, 'disclaimerEn', 600)
+        && isOptionalString(data, 'disclaimerBn', 600)
+        && data.inputs is list && data.inputs.size() <= 25
+        && data.outputs is list && data.outputs.size() >= 1 && data.outputs.size() <= 20
+        && isOptionalBoundedList(data, 'conditions', 20)
+        && (!('exampleInputs' in data) || data.exampleInputs is map)
+        && data.version is number
+        && data.enabled is bool
+        && data.published is bool
+        && isOptionalString(data, 'updatedBy', 128)
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidFormulaRecord(data, formulaId) {
+      return data.keys().hasAll(['id', 'calculatorId', 'expression', 'version', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'calculatorId', 'expression', 'version', 'updatedAt'])
+        && data.id is string && data.id == formulaId && data.id.size() <= 100
+        && data.calculatorId is string && data.calculatorId.size() <= 100
+        && data.expression is string && data.expression.size() >= 1 && data.expression.size() <= 500
+        && data.version is number
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidFormulaVersion(data, versionId) {
+      return data.keys().hasAll(['id', 'calculatorId', 'version', 'snapshot', 'createdBy', 'createdAt'])
+        && data.keys().hasOnly(['id', 'calculatorId', 'version', 'snapshot', 'changeNote', 'createdBy', 'createdAt'])
+        && data.id is string && data.id == versionId && data.id.size() <= 128
+        && data.calculatorId is string && data.calculatorId.size() <= 100
+        && data.version is number
+        && data.snapshot is map
+        && isOptionalString(data, 'changeNote', 300)
+        && data.createdBy is string && data.createdBy.size() <= 128
+        && data.createdAt is timestamp;
+    }
+
+    function isValidUnit(data, unitId) {
+      return data.keys().hasAll(['id', 'dimension', 'symbol', 'nameEn', 'toBaseFactor', 'enabled', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'dimension', 'symbol', 'nameEn', 'nameBn', 'toBaseFactor', 'enabled', 'updatedAt'])
+        && data.id is string && data.id == unitId && data.id.size() <= 64
+        && data.dimension is string && data.dimension.size() >= 1 && data.dimension.size() <= 64
+        && data.symbol is string && data.symbol.size() >= 1 && data.symbol.size() <= 24
+        && data.nameEn is string && data.nameEn.size() >= 1 && data.nameEn.size() <= 80
+        && isOptionalString(data, 'nameBn', 80)
+        && data.toBaseFactor is number
+        && data.enabled is bool
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidCalculationHistory(data, historyId) {
+      return data.keys().hasAll(['id', 'userId', 'calculatorId', 'calculatorNameEn', 'inputs', 'outputs', 'isSaved', 'createdAt'])
+        && data.keys().hasOnly(['id', 'userId', 'calculatorId', 'calculatorNameEn', 'calculatorNameBn', 'categoryId', 'inputs', 'outputs', 'formulaDisplay', 'note', 'isSaved', 'createdAt'])
+        && data.id is string && data.id == historyId && data.id.size() <= 128
+        && data.userId is string && data.userId == request.auth.uid && data.userId.size() <= 128
+        && data.calculatorId is string && data.calculatorId.size() <= 100
+        && data.calculatorNameEn is string && data.calculatorNameEn.size() <= 160
+        && isOptionalString(data, 'calculatorNameBn', 160)
+        && isOptionalString(data, 'categoryId', 64)
+        && data.inputs is map
+        && data.outputs is map
+        && isOptionalString(data, 'formulaDisplay', 300)
+        && isOptionalString(data, 'note', 600)
+        && data.isSaved is bool
+        && data.createdAt is timestamp;
+    }
+
+    function isValidReportTemplate(data, templateId) {
+      return data.keys().hasAll(['id', 'nameEn', 'nameBn', 'orientation', 'showSignature', 'enabled', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'nameEn', 'nameBn', 'category', 'descriptionEn', 'descriptionBn', 'recommended', 'lockedByAdmin', 'orientation', 'headerText', 'footerText', 'accentColor', 'showSignature', 'showChart', 'customFields', 'pageDesign', 'blocks', 'enabled', 'updatedBy', 'updatedAt'])
+        && data.id is string && data.id == templateId && data.id.size() <= 100
+        && data.nameEn is string && data.nameEn.size() >= 1 && data.nameEn.size() <= 140
+        && data.nameBn is string && data.nameBn.size() >= 1 && data.nameBn.size() <= 140
+        && isOptionalString(data, 'category', 60)
+        && isOptionalString(data, 'descriptionEn', 400)
+        && isOptionalString(data, 'descriptionBn', 400)
+        && (!('recommended' in data) || data.recommended is bool)
+        && (!('lockedByAdmin' in data) || data.lockedByAdmin is bool)
+        && data.orientation in ['portrait', 'landscape']
+        && isOptionalString(data, 'headerText', 300)
+        && isOptionalString(data, 'footerText', 300)
+        && isOptionalString(data, 'accentColor', 20)
+        && data.showSignature is bool
+        && (!('showChart' in data) || data.showChart is bool)
+        && isOptionalBoundedList(data, 'customFields', 20)
+        && (!('pageDesign' in data) || data.pageDesign is map)
+        && isOptionalBoundedList(data, 'blocks', 80)
+        && data.enabled is bool
+        && isOptionalString(data, 'updatedBy', 128)
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidGeneratedReport(data, reportId) {
+      return data.keys().hasAll(['id', 'userId', 'templateId', 'reportNumber', 'title', 'orientation', 'payload', 'createdAt'])
+        && data.keys().hasOnly(['id', 'userId', 'templateId', 'reportNumber', 'title', 'companyName', 'projectName', 'category', 'orientation', 'payload', 'pageDesign', 'blocks', 'pdfStoragePath', 'pdfDownloadUrl', 'pdfFileSizeBytes', 'createdAt', 'updatedAt'])
+        && data.id is string && data.id == reportId && data.id.size() <= 128
+        && data.userId is string && data.userId == request.auth.uid && data.userId.size() <= 128
+        && data.templateId is string && data.templateId.size() <= 100
+        && data.reportNumber is string && data.reportNumber.size() <= 64
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 200
+        && isOptionalString(data, 'companyName', 160)
+        && isOptionalString(data, 'projectName', 160)
+        && isOptionalString(data, 'category', 60)
+        && data.orientation in ['portrait', 'landscape']
+        && data.payload is map
+        && (!('pageDesign' in data) || data.pageDesign is map)
+        && isOptionalBoundedList(data, 'blocks', 80)
+        && isOptionalString(data, 'pdfStoragePath', 400)
+        && isOptionalString(data, 'pdfDownloadUrl', 1200)
+        && (!('pdfFileSizeBytes' in data) || (data.pdfFileSizeBytes is number && data.pdfFileSizeBytes >= 0))
+        && data.createdAt is timestamp
+        && (!('updatedAt' in data) || data.updatedAt is timestamp);
+    }
+
+    function isValidCalendarEvent(data, eventId) {
+      return data.keys().hasAll(['id', 'userId', 'title', 'date', 'repeat', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'userId', 'title', 'description', 'date', 'time', 'repeat', 'attachedNoteId', 'category', 'createdAt', 'updatedAt'])
+        && data.id is string && data.id == eventId && data.id.size() <= 128
+        && data.userId is string && data.userId == request.auth.uid && data.userId.size() <= 128
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 160
+        && isOptionalString(data, 'description', 800)
+        && data.date is string && data.date.size() <= 20
+        && isOptionalString(data, 'time', 20)
+        && data.repeat in ['none', 'daily', 'weekly', 'monthly', 'yearly']
+        && isOptionalString(data, 'attachedNoteId', 128)
+        && isOptionalString(data, 'category', 60)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidReminder(data, reminderId) {
+      return data.keys().hasAll(['id', 'userId', 'title', 'date', 'time', 'repeat', 'priority', 'completed', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'userId', 'title', 'description', 'date', 'time', 'repeat', 'customIntervalDays', 'priority', 'completed', 'location', 'notified', 'createdAt', 'updatedAt'])
+        && data.id is string && data.id == reminderId && data.id.size() <= 128
+        && data.userId is string && data.userId == request.auth.uid && data.userId.size() <= 128
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 160
+        && isOptionalString(data, 'description', 600)
+        && data.date is string && data.date.size() <= 20
+        && data.time is string && data.time.size() <= 20
+        && data.repeat in ['none', 'daily', 'weekly', 'monthly', 'yearly', 'custom']
+        && isOptionalNumber(data, 'customIntervalDays')
+        && data.priority in ['low', 'medium', 'high']
+        && data.completed is bool
+        && isOptionalString(data, 'location', 200)
+        && (!('notified' in data) || data.notified is bool)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidNotification(data, notificationId) {
+      return data.keys().hasAll(['id', 'userId', 'title', 'body', 'type', 'read', 'createdAt'])
+        && data.keys().hasOnly(['id', 'userId', 'title', 'body', 'type', 'read', 'createdAt'])
+        && data.id is string && data.id == notificationId && data.id.size() <= 128
+        && data.userId is string && data.userId.size() <= 128
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 160
+        && data.body is string && data.body.size() <= 600
+        && data.type in ['reminder', 'system', 'broadcast']
+        && data.read is bool
+        && data.createdAt is timestamp;
+    }
+
+    function isValidPersonalNote(data, noteId) {
+      return data.keys().hasAll(['id', 'userId', 'title', 'content', 'category', 'pinned', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'userId', 'title', 'content', 'category', 'pinned', 'date', 'imageDataUrl', 'locationLabel', 'latitude', 'longitude', 'linkedEventId', 'linkedCalculationId', 'createdAt', 'updatedAt'])
+        && data.id is string && data.id == noteId && data.id.size() <= 128
+        && data.userId is string && data.userId == request.auth.uid && data.userId.size() <= 128
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 180
+        && data.content is string && data.content.size() <= 12000
+        && data.category is string && data.category.size() <= 60
+        && data.pinned is bool
+        && isOptionalString(data, 'date', 20)
+        && isOptionalString(data, 'imageDataUrl', 350000)
+        && isOptionalString(data, 'locationLabel', 200)
+        && isOptionalNumber(data, 'latitude')
+        && isOptionalNumber(data, 'longitude')
+        && isOptionalString(data, 'linkedEventId', 128)
+        && isOptionalString(data, 'linkedCalculationId', 128)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidAppSetting(data, settingId) {
+      return data.keys().hasAll(['id', 'platformNameEn', 'defaultLanguage', 'maintenanceMode', 'updatedAt'])
+        && data.keys().hasOnly([
+          'id', 'platformNameEn', 'platformNameBn', 'defaultLanguage', 'hijriOffsetDays',
+          'banglaCalendarVariant', 'maintenanceMode', 'announcementBanner', 'aiPdfConfig',
+          'moduleFlags', 'translateConfig', 'dictionaryConfig', 'calculatorConfig',
+          'storageConfig', 'profileConfig', 'updatedAt'
+        ])
+        && data.id is string && data.id == settingId && data.id.size() <= 64
+        && data.platformNameEn is string && data.platformNameEn.size() <= 100
+        && isOptionalString(data, 'platformNameBn', 100)
+        && data.defaultLanguage in ['en', 'bn']
+        && isOptionalNumber(data, 'hijriOffsetDays')
+        && (!('banglaCalendarVariant' in data) || data.banglaCalendarVariant in ['revised', 'traditional'])
+        && data.maintenanceMode is bool
+        && isOptionalString(data, 'announcementBanner', 300)
+        && (!('aiPdfConfig' in data) || data.aiPdfConfig is map)
+        && (!('moduleFlags' in data) || data.moduleFlags is map)
+        && (!('translateConfig' in data) || data.translateConfig is map)
+        && (!('dictionaryConfig' in data) || data.dictionaryConfig is map)
+        && (!('calculatorConfig' in data) || data.calculatorConfig is map)
+        && (!('storageConfig' in data) || data.storageConfig is map)
+        && (!('profileConfig' in data) || data.profileConfig is map)
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidAuditLog(data, logId) {
+      return data.keys().hasAll(['id', 'actorUid', 'action', 'targetCollection', 'targetId', 'summary', 'createdAt'])
+        && data.keys().hasOnly(['id', 'actorUid', 'actorEmail', 'action', 'targetCollection', 'targetId', 'summary', 'createdAt'])
+        && data.id is string && data.id == logId && data.id.size() <= 128
+        && data.actorUid is string && data.actorUid == request.auth.uid && data.actorUid.size() <= 128
+        && isOptionalString(data, 'actorEmail', 200)
+        && data.action is string && data.action.size() <= 120
+        && data.targetCollection is string && data.targetCollection.size() <= 80
+        && data.targetId is string && data.targetId.size() <= 128
+        && data.summary is string && data.summary.size() <= 400
+        && data.createdAt is timestamp;
+    }
+
+    function isValidPdfDocument(data, docId) {
+      return data.keys().hasAll(['id', 'userId', 'title', 'fileName', 'category', 'specialty', 'fileSizeBytes', 'pageCount', 'ocrPagesCount', 'processingStatus', 'processingProgress', 'sharedWithLink', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'userId', 'title', 'fileName', 'category', 'specialty', 'fileSizeBytes', 'pageCount', 'ocrPagesCount', 'processingStatus', 'processingProgress', 'processingError', 'storagePath', 'downloadUrl', 'sourceType', 'sourceUrl', 'sourceUrls', 'mimeType', 'documentType', 'summaryEn', 'summaryBn', 'keyFindings', 'extractedNumbers', 'extractedFormulas', 'extractedSpecs', 'extractedTables', 'warnings', 'sharedWithLink', 'folderId', 'createdAt', 'updatedAt'])
+        && data.id is string && data.id == docId && data.id.size() <= 128
+        && data.userId is string && data.userId == request.auth.uid && data.userId.size() <= 128
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 200
+        && data.fileName is string && data.fileName.size() >= 1 && data.fileName.size() <= 240
+        && data.category is string && data.category.size() >= 1 && data.category.size() <= 40
+        && data.specialty in ['general', 'electrical', 'mechanical', 'civil']
+        && data.fileSizeBytes is number && data.fileSizeBytes >= 0
+        && data.pageCount is number && data.pageCount >= 0
+        && data.ocrPagesCount is number && data.ocrPagesCount >= 0
+        && data.processingStatus in ['uploading', 'extracting', 'analyzing', 'ready', 'error']
+        && data.processingProgress is number && data.processingProgress >= 0 && data.processingProgress <= 100
+        && isOptionalString(data, 'processingError', 600)
+        && isOptionalString(data, 'storagePath', 400)
+        && isOptionalString(data, 'downloadUrl', 1200)
+        && (!('sourceType' in data) || data.sourceType in ['pdf', 'text', 'url', 'multi_url', 'document', 'image'])
+        && isOptionalString(data, 'sourceUrl', 1200)
+        && isOptionalBoundedList(data, 'sourceUrls', 20)
+        && isOptionalString(data, 'mimeType', 120)
+        && isOptionalString(data, 'documentType', 140)
+        && isOptionalString(data, 'summaryEn', 6000)
+        && isOptionalString(data, 'summaryBn', 6000)
+        && isOptionalBoundedList(data, 'keyFindings', 50)
+        && isOptionalBoundedList(data, 'extractedNumbers', 120)
+        && isOptionalBoundedList(data, 'extractedFormulas', 40)
+        && isOptionalBoundedList(data, 'extractedSpecs', 80)
+        && isOptionalBoundedList(data, 'extractedTables', 20)
+        && isOptionalBoundedList(data, 'warnings', 40)
+        && data.sharedWithLink is bool
+        && isOptionalString(data, 'folderId', 128)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidPdfPage(data, docId, pageId) {
+      return data.keys().hasAll(['id', 'documentId', 'userId', 'pageNumber', 'text', 'isScanned', 'ocrApplied', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'documentId', 'userId', 'pageNumber', 'text', 'isScanned', 'ocrApplied', 'diagramSummary', 'thumbnailDataUrl', 'createdAt', 'updatedAt'])
+        && data.id is string && data.id == pageId && data.id.size() <= 64
+        && data.documentId is string && data.documentId == docId && data.documentId.size() <= 128
+        && data.userId is string && data.userId == request.auth.uid && data.userId.size() <= 128
+        && data.pageNumber is number && data.pageNumber >= 1
+        && data.text is string && data.text.size() <= 35000
+        && data.isScanned is bool
+        && data.ocrApplied is bool
+        && isOptionalString(data, 'diagramSummary', 5000)
+        && isOptionalString(data, 'thumbnailDataUrl', 180000)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidPdfChat(data, chatId) {
+      return data.keys().hasAll(['id', 'userId', 'title', 'documentIds', 'messages', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'userId', 'title', 'documentIds', 'messages', 'createdAt', 'updatedAt'])
+        && data.id is string && data.id == chatId && data.id.size() <= 128
+        && data.userId is string && data.userId == request.auth.uid && data.userId.size() <= 128
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 180
+        && data.documentIds is list && data.documentIds.size() >= 1 && data.documentIds.size() <= 10
+        && (data.documentIds.size() == 0 || (data.documentIds[0] is string && data.documentIds[0].size() <= 128))
+        && data.messages is list && data.messages.size() <= 100
+        && (data.messages.size() == 0 || data.messages[0] is map)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidPdfComparison(data, compId) {
+      return data.keys().hasAll(['id', 'userId', 'title', 'baseDocId', 'compareDocId', 'focusArea', 'summary', 'addedItems', 'removedItems', 'modifiedItems', 'createdAt'])
+        && data.keys().hasOnly(['id', 'userId', 'title', 'baseDocId', 'compareDocId', 'focusArea', 'summary', 'addedItems', 'removedItems', 'modifiedItems', 'createdAt'])
+        && data.id is string && data.id == compId && data.id.size() <= 128
+        && data.userId is string && data.userId == request.auth.uid && data.userId.size() <= 128
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 200
+        && data.baseDocId is string && data.baseDocId.size() <= 128
+        && data.compareDocId is string && data.compareDocId.size() <= 128
+        && data.focusArea is string && data.focusArea.size() <= 40
+        && data.summary is string && data.summary.size() <= 6000
+        && data.addedItems is list && data.addedItems.size() <= 100
+        && (data.addedItems.size() == 0 || data.addedItems[0] is map)
+        && data.removedItems is list && data.removedItems.size() <= 100
+        && (data.removedItems.size() == 0 || data.removedItems[0] is map)
+        && data.modifiedItems is list && data.modifiedItems.size() <= 100
+        && (data.modifiedItems.size() == 0 || data.modifiedItems[0] is map)
+        && data.createdAt is timestamp;
+    }
+
+    function isValidUserAiUsage(data, usageId) {
+      return data.keys().hasAll(['id', 'userId', 'date', 'analysisCount', 'questionCount', 'comparisonCount', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'userId', 'date', 'analysisCount', 'questionCount', 'comparisonCount', 'updatedAt'])
+        && data.id is string && data.id == usageId && data.id.size() <= 160
+        && data.userId is string && data.userId == request.auth.uid && data.userId.size() <= 128
+        && data.date is string && data.date.size() <= 20
+        && data.analysisCount is number && data.analysisCount >= 0
+        && data.questionCount is number && data.questionCount >= 0
+        && data.comparisonCount is number && data.comparisonCount >= 0
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidUserReportTemplate(data, tplId) {
+      return data.keys().hasAll(['id', 'userId', 'nameEn', 'category', 'orientation', 'pageDesign', 'blocks', 'sharedWithLink', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'userId', 'nameEn', 'nameBn', 'category', 'description', 'sourceTemplateId', 'orientation', 'headerText', 'footerText', 'accentColor', 'pageDesign', 'blocks', 'sharedWithLink', 'createdAt', 'updatedAt'])
+        && data.id is string && data.id == tplId && data.id.size() <= 128
+        && data.userId is string && data.userId == request.auth.uid && data.userId.size() <= 128
+        && data.nameEn is string && data.nameEn.size() >= 1 && data.nameEn.size() <= 140
+        && isOptionalString(data, 'nameBn', 140)
+        && data.category is string && data.category.size() >= 1 && data.category.size() <= 60
+        && isOptionalString(data, 'description', 400)
+        && isOptionalString(data, 'sourceTemplateId', 128)
+        && data.orientation in ['portrait', 'landscape']
+        && isOptionalString(data, 'headerText', 300)
+        && isOptionalString(data, 'footerText', 300)
+        && isOptionalString(data, 'accentColor', 20)
+        && data.pageDesign is map
+        && data.blocks is list && data.blocks.size() <= 80
+        && (data.blocks.size() == 0 || data.blocks[0] is map)
+        && data.sharedWithLink is bool
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidReportSection(data, sectionId) {
+      return data.keys().hasAll(['id', 'userId', 'title', 'blockType', 'category', 'blockData', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'userId', 'title', 'blockType', 'category', 'blockData', 'createdAt', 'updatedAt'])
+        && data.id is string && data.id == sectionId && data.id.size() <= 128
+        && data.userId is string && data.userId == request.auth.uid && data.userId.size() <= 128
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 140
+        && data.blockType is string && data.blockType.size() >= 1 && data.blockType.size() <= 50
+        && data.category is string && data.category.size() >= 1 && data.category.size() <= 60
+        && data.blockData is map
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidReportAsset(data, assetId) {
+      return data.keys().hasAll(['id', 'userId', 'name', 'assetType', 'dataUrl', 'createdAt'])
+        && data.keys().hasOnly(['id', 'userId', 'name', 'assetType', 'dataUrl', 'storagePath', 'downloadUrl', 'fileSizeBytes', 'createdAt'])
+        && data.id is string && data.id == assetId && data.id.size() <= 128
+        && data.userId is string && data.userId == request.auth.uid && data.userId.size() <= 128
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 160
+        && data.assetType in ['logo', 'signature', 'drawing', 'image']
+        && data.dataUrl is string && data.dataUrl.size() <= 320000
+        && isOptionalString(data, 'storagePath', 400)
+        && isOptionalString(data, 'downloadUrl', 1200)
+        && (!('fileSizeBytes' in data) || (data.fileSizeBytes is number && data.fileSizeBytes >= 0))
+        && data.createdAt is timestamp;
+    }
+
+    function isValidEmailHistory(data, emailId) {
+      return data.keys().hasAll(['id', 'userId', 'reportTitle', 'to', 'subject', 'provider', 'deliveryStatus', 'sentAtIso', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'userId', 'reportId', 'reportNumber', 'reportTitle', 'to', 'cc', 'bcc', 'subject', 'messageBody', 'hasPdfAttachment', 'hasExcelAttachment', 'provider', 'providerMessageId', 'deliveryStatus', 'statusNote', 'errorDetail', 'sentAtIso', 'createdAt', 'updatedAt'])
+        && data.id is string && data.id == emailId && data.id.size() <= 128
+        && data.userId is string && data.userId == request.auth.uid && data.userId.size() <= 128
+        && isOptionalString(data, 'reportId', 128)
+        && isOptionalString(data, 'reportNumber', 64)
+        && data.reportTitle is string && data.reportTitle.size() >= 1 && data.reportTitle.size() <= 200
+        && data.to is list && data.to.size() >= 1 && data.to.size() <= 20
+        && (data.to.size() == 0 || (data.to[0] is string && data.to[0].size() <= 200))
+        && isOptionalBoundedList(data, 'cc', 20)
+        && isOptionalBoundedList(data, 'bcc', 20)
+        && data.subject is string && data.subject.size() >= 1 && data.subject.size() <= 300
+        && isOptionalString(data, 'messageBody', 6000)
+        && (!('hasPdfAttachment' in data) || data.hasPdfAttachment is bool)
+        && (!('hasExcelAttachment' in data) || data.hasExcelAttachment is bool)
+        && data.provider in ['gmail_oauth', 'resend', 'smtp_relay']
+        && isOptionalString(data, 'providerMessageId', 240)
+        && data.deliveryStatus in ['submitted', 'sent', 'delivered', 'failed']
+        && isOptionalString(data, 'statusNote', 400)
+        && isOptionalString(data, 'errorDetail', 600)
+        && data.sentAtIso is string && data.sentAtIso.size() <= 40
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidReportSetting(data, settingId) {
+      return data.keys().hasAll(['id', 'allowUserCustomTemplates', 'allowCustomPageSizes', 'allowEmailDispatch', 'allowExcelExport', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'defaultCompanyName', 'defaultAccentColor', 'defaultFontFamily', 'defaultHeaderText', 'defaultFooterText', 'defaultMarginMm', 'allowUserCustomTemplates', 'allowCustomPageSizes', 'allowEmailDispatch', 'allowExcelExport', 'disabledElementTypes', 'updatedBy', 'updatedAt'])
+        && data.id is string && data.id == settingId && data.id.size() <= 64
+        && isOptionalString(data, 'defaultCompanyName', 160)
+        && isOptionalString(data, 'defaultAccentColor', 20)
+        && isOptionalString(data, 'defaultFontFamily', 120)
+        && isOptionalString(data, 'defaultHeaderText', 300)
+        && isOptionalString(data, 'defaultFooterText', 300)
+        && isOptionalNumber(data, 'defaultMarginMm')
+        && data.allowUserCustomTemplates is bool
+        && data.allowCustomPageSizes is bool
+        && data.allowEmailDispatch is bool
+        && data.allowExcelExport is bool
+        && isOptionalBoundedList(data, 'disabledElementTypes', 35)
+        && isOptionalString(data, 'updatedBy', 128)
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidSpreadsheetWorkbook(data, spreadsheetId) {
+      return data.keys().hasAll(['id', 'userId', 'title', 'category', 'activeSheetId', 'sheets', 'sharedWithLink', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'userId', 'title', 'category', 'activeSheetId', 'sheets', 'sharedWithLink', 'createdAt', 'updatedAt'])
+        && data.id is string && data.id == spreadsheetId && data.id.size() <= 128
+        && data.userId is string && data.userId == request.auth.uid && data.userId.size() <= 128
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 180
+        && data.category is string && data.category.size() <= 60
+        && data.activeSheetId is string && data.activeSheetId.size() <= 128
+        && data.sheets is list && data.sheets.size() >= 1 && data.sheets.size() <= 25
+        && (data.sheets.size() == 0 || data.sheets[0] is map)
+        && data.sharedWithLink is bool
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidSpreadsheetTemplate(data, templateId) {
+      return data.keys().hasAll(['id', 'nameEn', 'nameBn', 'category', 'sheets', 'enabled', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'nameEn', 'nameBn', 'category', 'descriptionEn', 'descriptionBn', 'sheets', 'recommended', 'enabled', 'updatedBy', 'updatedAt'])
+        && data.id is string && data.id == templateId && data.id.size() <= 128
+        && data.nameEn is string && data.nameEn.size() >= 1 && data.nameEn.size() <= 140
+        && data.nameBn is string && data.nameBn.size() >= 1 && data.nameBn.size() <= 140
+        && data.category is string && data.category.size() <= 60
+        && isOptionalString(data, 'descriptionEn', 400)
+        && isOptionalString(data, 'descriptionBn', 400)
+        && data.sheets is list && data.sheets.size() >= 1 && data.sheets.size() <= 15
+        && (data.sheets.size() == 0 || data.sheets[0] is map)
+        && (!('recommended' in data) || data.recommended is bool)
+        && data.enabled is bool
+        && isOptionalString(data, 'updatedBy', 128)
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidSpreadsheetHistory(data, historyId) {
+      return data.keys().hasAll(['id', 'userId', 'spreadsheetId', 'title', 'action', 'summary', 'createdAt'])
+        && data.keys().hasOnly(['id', 'userId', 'spreadsheetId', 'title', 'action', 'summary', 'createdAt'])
+        && data.id is string && data.id == historyId && data.id.size() <= 128
+        && data.userId is string && data.userId == request.auth.uid && data.userId.size() <= 128
+        && data.spreadsheetId is string && data.spreadsheetId.size() <= 128
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 180
+        && data.action in ['create', 'save', 'export_xlsx', 'export_csv', 'export_pdf', 'calc_push']
+        && data.summary is string && data.summary.size() <= 400
+        && data.createdAt is timestamp;
+    }
+
+    function isValidPresentation(data, presentationId) {
+      return data.keys().hasAll(['id', 'userId', 'title', 'topic', 'classLevel', 'subject', 'language', 'level', 'themeId', 'slides', 'sharedWithLink', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'userId', 'title', 'topic', 'classLevel', 'subject', 'language', 'level', 'themeId', 'audience', 'purpose', 'slides', 'references', 'sharedWithLink', 'createdAt', 'updatedAt'])
+        && data.id is string && data.id == presentationId && data.id.size() <= 128
+        && data.userId is string && data.userId == request.auth.uid && data.userId.size() <= 128
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 200
+        && data.topic is string && data.topic.size() >= 1 && data.topic.size() <= 200
+        && data.classLevel is string && data.classLevel.size() <= 40
+        && data.subject is string && data.subject.size() <= 80
+        && data.language in ['en', 'bn']
+        && data.level in ['beginner', 'intermediate', 'advanced']
+        && data.themeId is string && data.themeId.size() <= 64
+        && isOptionalString(data, 'audience', 140)
+        && isOptionalString(data, 'purpose', 200)
+        && data.slides is list && data.slides.size() >= 1 && data.slides.size() <= 40
+        && (data.slides.size() == 0 || data.slides[0] is map)
+        && isOptionalBoundedList(data, 'references', 30)
+        && data.sharedWithLink is bool
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidPresentationTemplate(data, templateId) {
+      return data.keys().hasAll(['id', 'nameEn', 'nameBn', 'category', 'subject', 'classLevel', 'themeId', 'slides', 'enabled', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'nameEn', 'nameBn', 'category', 'subject', 'classLevel', 'descriptionEn', 'descriptionBn', 'themeId', 'slides', 'enabled', 'updatedBy', 'updatedAt'])
+        && data.id is string && data.id == templateId && data.id.size() <= 128
+        && data.nameEn is string && data.nameEn.size() >= 1 && data.nameEn.size() <= 140
+        && data.nameBn is string && data.nameBn.size() >= 1 && data.nameBn.size() <= 140
+        && data.category is string && data.category.size() <= 60
+        && data.subject is string && data.subject.size() <= 80
+        && data.classLevel is string && data.classLevel.size() <= 40
+        && isOptionalString(data, 'descriptionEn', 400)
+        && isOptionalString(data, 'descriptionBn', 400)
+        && data.themeId is string && data.themeId.size() <= 64
+        && data.slides is list && data.slides.size() >= 1 && data.slides.size() <= 30
+        && (data.slides.size() == 0 || data.slides[0] is map)
+        && data.enabled is bool
+        && isOptionalString(data, 'updatedBy', 128)
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidPresentationSlideRecord(data, slideId) {
+      return data.keys().hasAll(['id', 'presentationId', 'userId', 'order', 'slideData', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'presentationId', 'userId', 'order', 'slideData', 'createdAt', 'updatedAt'])
+        && data.id is string && data.id == slideId && data.id.size() <= 128
+        && data.presentationId is string && data.presentationId.size() <= 128
+        && data.userId is string && data.userId == request.auth.uid && data.userId.size() <= 128
+        && data.order is number
+        && data.slideData is map
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidCustomFormula(data, formulaId) {
+      return data.keys().hasAll(['id', 'userId', 'categoryId', 'nameEn', 'nameBn', 'formulaDisplay', 'inputs', 'outputs', 'version', 'visibility', 'approvedByAdmin', 'enabled', 'published', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'userId', 'authorName', 'authorEmail', 'categoryId', 'nameEn', 'nameBn', 'descriptionEn', 'descriptionBn', 'formulaDisplay', 'formulaReference', 'explanationEn', 'explanationBn', 'disclaimerEn', 'disclaimerBn', 'intermediateVars', 'inputs', 'outputs', 'conditions', 'exampleInputs', 'showSteps', 'showExplanation', 'reportTemplateId', 'version', 'visibility', 'approvedByAdmin', 'enabled', 'published', 'updatedBy', 'createdAt', 'updatedAt'])
+        && data.id is string && data.id == formulaId && data.id.size() <= 128
+        && data.userId is string && data.userId.size() <= 128
+        && isOptionalString(data, 'authorName', 120)
+        && isOptionalString(data, 'authorEmail', 200)
+        && data.categoryId is string && data.categoryId.size() <= 64
+        && data.nameEn is string && data.nameEn.size() >= 1 && data.nameEn.size() <= 160
+        && data.nameBn is string && data.nameBn.size() >= 1 && data.nameBn.size() <= 160
+        && isOptionalString(data, 'descriptionEn', 600)
+        && isOptionalString(data, 'descriptionBn', 600)
+        && data.formulaDisplay is string && data.formulaDisplay.size() >= 1 && data.formulaDisplay.size() <= 400
+        && isOptionalString(data, 'formulaReference', 400)
+        && isOptionalString(data, 'explanationEn', 1500)
+        && isOptionalString(data, 'explanationBn', 1500)
+        && isOptionalString(data, 'disclaimerEn', 600)
+        && isOptionalString(data, 'disclaimerBn', 600)
+        && isOptionalBoundedList(data, 'intermediateVars', 20)
+        && data.inputs is list && data.inputs.size() <= 30
+        && data.outputs is list && data.outputs.size() >= 1 && data.outputs.size() <= 20
+        && isOptionalBoundedList(data, 'conditions', 25)
+        && (!('exampleInputs' in data) || data.exampleInputs is map)
+        && (!('showSteps' in data) || data.showSteps is bool)
+        && (!('showExplanation' in data) || data.showExplanation is bool)
+        && isOptionalString(data, 'reportTemplateId', 128)
+        && data.version is number
+        && data.visibility in ['private', 'public', 'shared']
+        && data.approvedByAdmin is bool
+        && data.enabled is bool
+        && data.published is bool
+        && isOptionalString(data, 'updatedBy', 128)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidFormulaTestCase(data, testCaseId) {
+      return data.keys().hasAll(['id', 'formulaId', 'userId', 'name', 'inputs', 'expectedOutputs', 'tolerancePercent', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'formulaId', 'userId', 'name', 'inputs', 'expectedOutputs', 'tolerancePercent', 'lastPassed', 'lastRunAtIso', 'createdAt', 'updatedAt'])
+        && data.id is string && data.id == testCaseId && data.id.size() <= 128
+        && data.formulaId is string && data.formulaId.size() <= 128
+        && data.userId is string && data.userId == request.auth.uid && data.userId.size() <= 128
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 140
+        && data.inputs is map
+        && data.expectedOutputs is map
+        && data.tolerancePercent is number
+        && (!('lastPassed' in data) || data.lastPassed is bool)
+        && isOptionalString(data, 'lastRunAtIso', 40)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidFormulaCategory(data, categoryId) {
+      return data.keys().hasAll(['id', 'slug', 'nameEn', 'nameBn', 'order', 'enabled', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'slug', 'nameEn', 'nameBn', 'descriptionEn', 'descriptionBn', 'order', 'enabled', 'updatedAt'])
+        && data.id is string && data.id == categoryId && data.id.size() <= 64
+        && data.slug is string && data.slug.size() <= 64
+        && data.nameEn is string && data.nameEn.size() >= 1 && data.nameEn.size() <= 120
+        && data.nameBn is string && data.nameBn.size() >= 1 && data.nameBn.size() <= 120
+        && isOptionalString(data, 'descriptionEn', 400)
+        && isOptionalString(data, 'descriptionBn', 400)
+        && data.order is number
+        && data.enabled is bool
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidSchoolFormula(data, formulaId) {
+      return data.keys().hasAll(['id', 'classLevel', 'subject', 'chapterEn', 'chapterBn', 'nameEn', 'nameBn', 'expression', 'explanationBn', 'explanationEn', 'symbols', 'siUnit', 'reference', 'curriculumVersion', 'verified', 'published', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'classLevel', 'subject', 'chapterEn', 'chapterBn', 'nameEn', 'nameBn', 'expression', 'explanationBn', 'explanationEn', 'symbols', 'siUnit', 'unitConversionNoteEn', 'unitConversionNoteBn', 'exampleEn', 'exampleBn', 'stepByStepEn', 'stepByStepBn', 'commonMistakesEn', 'commonMistakesBn', 'practiceQuestions', 'relatedIds', 'reference', 'curriculumVersion', 'calculatorInputs', 'calculatorOutputs', 'verified', 'published', 'updatedBy', 'updatedAt'])
+        && data.id is string && data.id == formulaId && data.id.size() <= 128
+        && data.classLevel is number && data.classLevel >= 1 && data.classLevel <= 10
+        && data.subject is string && data.subject.size() <= 60
+        && data.chapterEn is string && data.chapterEn.size() <= 160
+        && data.chapterBn is string && data.chapterBn.size() <= 160
+        && data.nameEn is string && data.nameEn.size() >= 1 && data.nameEn.size() <= 160
+        && data.nameBn is string && data.nameBn.size() >= 1 && data.nameBn.size() <= 160
+        && data.expression is string && data.expression.size() >= 1 && data.expression.size() <= 300
+        && data.explanationBn is string && data.explanationBn.size() <= 2000
+        && data.explanationEn is string && data.explanationEn.size() <= 2000
+        && data.symbols is list && data.symbols.size() <= 20
+        && data.siUnit is string && data.siUnit.size() <= 80
+        && isOptionalString(data, 'unitConversionNoteEn', 500)
+        && isOptionalString(data, 'unitConversionNoteBn', 500)
+        && isOptionalString(data, 'exampleEn', 1000)
+        && isOptionalString(data, 'exampleBn', 1000)
+        && isOptionalString(data, 'stepByStepEn', 1500)
+        && isOptionalString(data, 'stepByStepBn', 1500)
+        && isOptionalString(data, 'commonMistakesEn', 800)
+        && isOptionalString(data, 'commonMistakesBn', 800)
+        && isOptionalBoundedList(data, 'practiceQuestions', 10)
+        && isOptionalBoundedList(data, 'relatedIds', 15)
+        && data.reference is string && data.reference.size() <= 300
+        && data.curriculumVersion is string && data.curriculumVersion.size() <= 60
+        && isOptionalBoundedList(data, 'calculatorInputs', 15)
+        && isOptionalBoundedList(data, 'calculatorOutputs', 10)
+        && data.verified is bool
+        && data.published is bool
+        && isOptionalString(data, 'updatedBy', 128)
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidSchoolFormulaReference(data, refId) {
+      return data.keys().hasAll(['id', 'classLevel', 'subject', 'textbookTitleEn', 'textbookTitleBn', 'edition', 'publisher', 'chapters', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'classLevel', 'subject', 'textbookTitleEn', 'textbookTitleBn', 'edition', 'publisher', 'chapters', 'updatedAt'])
+        && data.id is string && data.id == refId && data.id.size() <= 128
+        && data.classLevel is number && data.classLevel >= 1 && data.classLevel <= 10
+        && data.subject is string && data.subject.size() <= 80
+        && data.textbookTitleEn is string && data.textbookTitleEn.size() <= 180
+        && data.textbookTitleBn is string && data.textbookTitleBn.size() <= 180
+        && data.edition is string && data.edition.size() <= 60
+        && data.publisher is string && data.publisher.size() <= 120
+        && data.chapters is list && data.chapters.size() <= 40
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidCurrencyRateCache(data, rateId) {
+      return data.keys().hasAll(['id', 'baseCurrency', 'rates', 'source', 'fetchedAtIso', 'rateTimestamp', 'isStale', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'baseCurrency', 'rates', 'source', 'fetchedAtIso', 'rateTimestamp', 'isStale', 'updatedAt'])
+        && data.id is string && data.id == rateId && data.id.size() <= 32
+        && data.baseCurrency is string && data.baseCurrency.size() <= 10
+        && data.rates is map
+        && data.source is string && data.source.size() <= 120
+        && data.fetchedAtIso is string && data.fetchedAtIso.size() <= 40
+        && data.rateTimestamp is string && data.rateTimestamp.size() <= 60
+        && data.isStale is bool
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidCurrencyHistory(data, historyId) {
+      return data.keys().hasAll(['id', 'userId', 'fromCurrency', 'toCurrency', 'amount', 'rate', 'convertedAmount', 'rateDate', 'source', 'isHistorical', 'createdAt'])
+        && data.keys().hasOnly(['id', 'userId', 'fromCurrency', 'toCurrency', 'amount', 'rate', 'convertedAmount', 'rateDate', 'source', 'isHistorical', 'isStale', 'createdAt'])
+        && data.id is string && data.id == historyId && data.id.size() <= 128
+        && data.userId is string && data.userId == request.auth.uid && data.userId.size() <= 128
+        && data.fromCurrency is string && data.fromCurrency.size() <= 10
+        && data.toCurrency is string && data.toCurrency.size() <= 10
+        && data.amount is number
+        && data.rate is number
+        && data.convertedAmount is number
+        && data.rateDate is string && data.rateDate.size() <= 30
+        && data.source is string && data.source.size() <= 120
+        && data.isHistorical is bool
+        && (!('isStale' in data) || data.isStale is bool)
+        && data.createdAt is timestamp;
+    }
+
+    function isValidCurrencySetting(data, settingId) {
+      return data.keys().hasAll(['id', 'preferredProvider', 'defaultBaseCurrency', 'defaultTargetCurrency', 'autoRefreshMinutes', 'allowHistorical', 'allowExcelPdfExport', 'enabled', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'preferredProvider', 'defaultBaseCurrency', 'defaultTargetCurrency', 'autoRefreshMinutes', 'allowHistorical', 'allowExcelPdfExport', 'enabled', 'updatedBy', 'updatedAt'])
+        && data.id is string && data.id == settingId && data.id.size() <= 64
+        && data.preferredProvider in ['open-er-api', 'frankfurter']
+        && data.defaultBaseCurrency is string && data.defaultBaseCurrency.size() <= 10
+        && data.defaultTargetCurrency is string && data.defaultTargetCurrency.size() <= 10
+        && data.autoRefreshMinutes is number
+        && data.allowHistorical is bool
+        && data.allowExcelPdfExport is bool
+        && data.enabled is bool
+        && isOptionalString(data, 'updatedBy', 128)
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidGoogleConnection(data, connectionId) {
+      return data.keys().hasAll(['id', 'userId', 'email', 'connectedCalendar', 'connectedSheets', 'connectedGmail', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'userId', 'email', 'connectedCalendar', 'connectedSheets', 'connectedGmail', 'calendarId', 'lastSyncedAtIso', 'updatedAt'])
+        && data.id is string && data.id == connectionId && data.id.size() <= 128
+        && data.userId is string && data.userId == request.auth.uid && data.userId.size() <= 128
+        && data.email is string && data.email.size() <= 200
+        && data.connectedCalendar is bool
+        && data.connectedSheets is bool
+        && data.connectedGmail is bool
+        && isOptionalString(data, 'calendarId', 180)
+        && isOptionalString(data, 'lastSyncedAtIso', 40)
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidGoogleSyncJob(data, jobId) {
+      return data.keys().hasAll(['id', 'userId', 'service', 'direction', 'resourceName', 'scheduleMinutes', 'enabled', 'status', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'userId', 'service', 'direction', 'resourceName', 'scheduleMinutes', 'enabled', 'lastRunAtIso', 'nextRunAtIso', 'status', 'createdAt', 'updatedAt'])
+        && data.id is string && data.id == jobId && data.id.size() <= 128
+        && data.userId is string && data.userId == request.auth.uid && data.userId.size() <= 128
+        && data['service'] in ['calendar', 'sheets']
+        && data.direction in ['export', 'import', 'two-way']
+        && data.resourceName is string && data.resourceName.size() <= 180
+        && data.scheduleMinutes is number
+        && data.enabled is bool
+        && isOptionalString(data, 'lastRunAtIso', 40)
+        && isOptionalString(data, 'nextRunAtIso', 40)
+        && data.status in ['idle', 'running', 'success', 'error']
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidGoogleSyncLog(data, logId) {
+      return data.keys().hasAll(['id', 'userId', 'service', 'action', 'status', 'itemsSynced', 'conflictsSkipped', 'ranAtIso', 'createdAt'])
+        && data.keys().hasOnly(['id', 'userId', 'service', 'action', 'status', 'itemsSynced', 'conflictsSkipped', 'errorMessage', 'ranAtIso', 'createdAt'])
+        && data.id is string && data.id == logId && data.id.size() <= 128
+        && data.userId is string && data.userId == request.auth.uid && data.userId.size() <= 128
+        && data['service'] in ['calendar', 'sheets', 'auth']
+        && data.action is string && data.action.size() <= 180
+        && data.status in ['success', 'skipped', 'error']
+        && data.itemsSynced is number
+        && data.conflictsSkipped is number
+        && isOptionalString(data, 'errorMessage', 500)
+        && data.ranAtIso is string && data.ranAtIso.size() <= 40
+        && data.createdAt is timestamp;
+    }
+
+    function isValidUpdateSchedule(data, scheduleId) {
+      return data.keys().hasAll(['id', 'userId', 'sourceKey', 'labelEn', 'labelBn', 'intervalMinutes', 'enabled', 'autoRetry', 'status', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'userId', 'sourceKey', 'labelEn', 'labelBn', 'intervalMinutes', 'enabled', 'autoRetry', 'lastRunAtIso', 'nextRunAtIso', 'status', 'updatedAt'])
+        && data.id is string && data.id == scheduleId && data.id.size() <= 128
+        && data.userId is string && data.userId == request.auth.uid && data.userId.size() <= 128
+        && data.sourceKey is string && data.sourceKey.size() <= 60
+        && data.labelEn is string && data.labelEn.size() <= 140
+        && data.labelBn is string && data.labelBn.size() <= 140
+        && data.intervalMinutes is number
+        && data.enabled is bool
+        && data.autoRetry is bool
+        && isOptionalString(data, 'lastRunAtIso', 40)
+        && isOptionalString(data, 'nextRunAtIso', 40)
+        && data.status in ['idle', 'success', 'error']
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidUpdateLog(data, logId) {
+      return data.keys().hasAll(['id', 'userId', 'sourceKey', 'status', 'summary', 'ranAtIso', 'createdAt'])
+        && data.keys().hasOnly(['id', 'userId', 'sourceKey', 'status', 'summary', 'errorMessage', 'ranAtIso', 'createdAt'])
+        && data.id is string && data.id == logId && data.id.size() <= 128
+        && data.userId is string && data.userId == request.auth.uid && data.userId.size() <= 128
+        && data.sourceKey is string && data.sourceKey.size() <= 60
+        && data.status in ['success', 'failed', 'skipped']
+        && data.summary is string && data.summary.size() <= 400
+        && isOptionalString(data, 'errorMessage', 500)
+        && data.ranAtIso is string && data.ranAtIso.size() <= 40
+        && data.createdAt is timestamp;
+    }
+
+    function isValidUserExport(data, exportId) {
+      return data.keys().hasAll(['id', 'userId', 'module', 'title', 'format', 'createdAt'])
+        && data.keys().hasOnly(['id', 'userId', 'module', 'title', 'format', 'storagePath', 'downloadUrl', 'fileSizeBytes', 'createdAt'])
+        && data.id is string && data.id == exportId && data.id.size() <= 128
+        && data.userId is string && data.userId == request.auth.uid && data.userId.size() <= 128
+        && data.module in ['excel', 'presentation', 'report', 'currency', 'formula']
+        && data.title is string && data.title.size() <= 200
+        && data.format in ['xlsx', 'csv', 'pdf', 'pptx', 'json']
+        && isOptionalString(data, 'storagePath', 400)
+        && isOptionalString(data, 'downloadUrl', 1200)
+        && (!('fileSizeBytes' in data) || (data.fileSizeBytes is number && data.fileSizeBytes >= 0))
+        && data.createdAt is timestamp;
+    }
+
+    function isValidPdfFolder(data, folderId) {
+      return data.keys().hasAll(['id', 'userId', 'name', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'userId', 'name', 'color', 'createdAt', 'updatedAt'])
+        && data.id is string && data.id == folderId && data.id.size() <= 128
+        && data.userId is string && data.userId == request.auth.uid && data.userId.size() <= 128
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 80
+        && isOptionalString(data, 'color', 20)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidUserStorageUsage(data, userId) {
+      return data.keys().hasAll(['id', 'userId', 'totalBytes', 'totalFiles', 'totalPages', 'quotaBytes', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'userId', 'totalBytes', 'totalFiles', 'totalPages', 'quotaBytes', 'lastUploadAtIso', 'updatedAt'])
+        && data.id is string && data.id == userId && data.id.size() <= 128
+        && data.userId is string && data.userId == request.auth.uid && data.userId.size() <= 128
+        && data.totalBytes is number && data.totalBytes >= 0
+        && data.totalFiles is number && data.totalFiles >= 0
+        && data.totalPages is number && data.totalPages >= 0
+        && data.quotaBytes is number && data.quotaBytes >= 0
+        && isOptionalString(data, 'lastUploadAtIso', 40)
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidTranslationHistory(data, historyId) {
+      return data.keys().hasAll(['id', 'userId', 'sourceLang', 'targetLang', 'sourceText', 'translatedText', 'mode', 'provider', 'isFavourite', 'createdAt'])
+        && data.keys().hasOnly(['id', 'userId', 'sourceLang', 'targetLang', 'detectedLang', 'sourceText', 'translatedText', 'mode', 'provider', 'isFavourite', 'createdAt'])
+        && data.id is string && data.id == historyId && data.id.size() <= 128
+        && data.userId is string && data.userId == request.auth.uid && data.userId.size() <= 128
+        && data.sourceLang is string && data.sourceLang.size() <= 20
+        && data.targetLang is string && data.targetLang.size() <= 20
+        && isOptionalString(data, 'detectedLang', 20)
+        && data.sourceText is string && data.sourceText.size() <= 8000
+        && data.translatedText is string && data.translatedText.size() <= 8000
+        && data.mode in ['standard', 'technical', 'student', 'paragraph']
+        && data.provider is string && data.provider.size() <= 80
+        && data.isFavourite is bool
+        && data.createdAt is timestamp;
+    }
+
+    function isValidFavouriteTranslation(data, favId) {
+      return data.keys().hasAll(['id', 'userId', 'sourceLang', 'targetLang', 'sourceText', 'translatedText', 'mode', 'createdAt'])
+        && data.keys().hasOnly(['id', 'userId', 'sourceLang', 'targetLang', 'sourceText', 'translatedText', 'mode', 'createdAt'])
+        && data.id is string && data.id == favId && data.id.size() <= 128
+        && data.userId is string && data.userId == request.auth.uid && data.userId.size() <= 128
+        && data.sourceLang is string && data.sourceLang.size() <= 20
+        && data.targetLang is string && data.targetLang.size() <= 20
+        && data.sourceText is string && data.sourceText.size() <= 8000
+        && data.translatedText is string && data.translatedText.size() <= 8000
+        && data.mode in ['standard', 'technical', 'student', 'paragraph']
+        && data.createdAt is timestamp;
+    }
+
+    function isValidDictionaryHistory(data, historyId) {
+      return data.keys().hasAll(['id', 'userId', 'word', 'direction', 'domain', 'meaningBn', 'englishDefinition', 'partOfSpeech', 'sourceName', 'aiExplanationGenerated', 'createdAt'])
+        && data.keys().hasOnly(['id', 'userId', 'word', 'direction', 'domain', 'meaningBn', 'englishDefinition', 'partOfSpeech', 'phonetic', 'sourceName', 'aiExplanationGenerated', 'createdAt'])
+        && data.id is string && data.id == historyId && data.id.size() <= 128
+        && data.userId is string && data.userId == request.auth.uid && data.userId.size() <= 128
+        && data.word is string && data.word.size() >= 1 && data.word.size() <= 120
+        && data.direction in ['en-bn', 'bn-en', 'auto']
+        && data.domain in ['general', 'engineering', 'scientific', 'mathematical', 'electrical', 'mechanical', 'civil']
+        && data.meaningBn is string && data.meaningBn.size() <= 600
+        && data.englishDefinition is string && data.englishDefinition.size() <= 1200
+        && data.partOfSpeech is string && data.partOfSpeech.size() <= 60
+        && isOptionalString(data, 'phonetic', 80)
+        && data.sourceName is string && data.sourceName.size() <= 120
+        && data.aiExplanationGenerated is bool
+        && data.createdAt is timestamp;
+    }
+
+    function isValidFavouriteWord(data, favId) {
+      return data.keys().hasAll(['id', 'userId', 'word', 'meaningBn', 'englishDefinition', 'partOfSpeech', 'domain', 'createdAt'])
+        && data.keys().hasOnly(['id', 'userId', 'word', 'meaningBn', 'englishDefinition', 'partOfSpeech', 'phonetic', 'domain', 'examples', 'synonyms', 'antonyms', 'createdAt'])
+        && data.id is string && data.id == favId && data.id.size() <= 128
+        && data.userId is string && data.userId == request.auth.uid && data.userId.size() <= 128
+        && data.word is string && data.word.size() >= 1 && data.word.size() <= 120
+        && data.meaningBn is string && data.meaningBn.size() <= 600
+        && data.englishDefinition is string && data.englishDefinition.size() <= 1200
+        && data.partOfSpeech is string && data.partOfSpeech.size() <= 60
+        && isOptionalString(data, 'phonetic', 80)
+        && data.domain in ['general', 'engineering', 'scientific', 'mathematical', 'electrical', 'mechanical', 'civil']
+        && (!('examples' in data) || (data.examples is list && data.examples.size() <= 5 && (data.examples.size() == 0 || (data.examples[0] is string && data.examples[0].size() <= 400))))
+        && (!('synonyms' in data) || (data.synonyms is list && data.synonyms.size() <= 15 && (data.synonyms.size() == 0 || (data.synonyms[0] is string && data.synonyms[0].size() <= 80))))
+        && (!('antonyms' in data) || (data.antonyms is list && data.antonyms.size() <= 15 && (data.antonyms.size() == 0 || (data.antonyms[0] is string && data.antonyms[0].size() <= 80))))
+        && data.createdAt is timestamp;
+    }
+
+    function isValidCalculatorHistory(data, historyId) {
+      return data.keys().hasAll(['id', 'userId', 'mode', 'expression', 'result', 'createdAt'])
+        && data.keys().hasOnly(['id', 'userId', 'mode', 'expression', 'result', 'unit', 'steps', 'inputsSummary', 'createdAt'])
+        && data.id is string && data.id == historyId && data.id.size() <= 128
+        && data.userId is string && data.userId == request.auth.uid && data.userId.size() <= 128
+        && data.mode in ['normal', 'scientific', 'engineering']
+        && data.expression is string && data.expression.size() <= 500
+        && data.result is string && data.result.size() <= 300
+        && isOptionalString(data, 'unit', 40)
+        && isOptionalString(data, 'steps', 2000)
+        && isOptionalString(data, 'inputsSummary', 500)
+        && data.createdAt is timestamp;
+    }
+
+    function isValidSuggestion(data, suggestionId) {
+      return data.keys().hasAll(['id', 'userId', 'userName', 'userEmail', 'title', 'category', 'description', 'relatedModule', 'priority', 'visibility', 'status', 'voteCount', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'userId', 'userName', 'userEmail', 'title', 'category', 'description', 'relatedModule', 'attachmentDataUrl', 'priority', 'visibility', 'status', 'adminReply', 'internalNote', 'isImportant', 'isDevelopmentTask', 'voteCount', 'createdAt', 'updatedAt'])
+        && data.id is string && data.id == suggestionId && data.id.size() <= 128
+        && data.userId is string && data.userId.size() <= 128
+        && data.userName is string && data.userName.size() <= 120
+        && data.userEmail is string && data.userEmail.size() <= 200
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 180
+        && data.category is string && data.category.size() <= 60
+        && data.description is string && data.description.size() >= 1 && data.description.size() <= 4000
+        && data.relatedModule is string && data.relatedModule.size() <= 80
+        && isOptionalString(data, 'attachmentDataUrl', 320000)
+        && data.priority in ['low', 'medium', 'high']
+        && data.visibility in ['public', 'private']
+        && data.status in ['Submitted', 'Under Review', 'Accepted', 'In Development', 'Completed', 'Rejected']
+        && isOptionalString(data, 'adminReply', 2000)
+        && isOptionalString(data, 'internalNote', 2000)
+        && isOptionalBool(data, 'isImportant')
+        && isOptionalBool(data, 'isDevelopmentTask')
+        && data.voteCount is number && data.voteCount >= 0
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidSuggestionVote(data, voteId) {
+      return data.keys().hasAll(['id', 'suggestionId', 'userId', 'createdAt'])
+        && data.keys().hasOnly(['id', 'suggestionId', 'userId', 'createdAt'])
+        && data.id is string && data.id == voteId && data.id.size() <= 260
+        && data.suggestionId is string && data.suggestionId.size() <= 128
+        && data.userId is string && data.userId == request.auth.uid && data.userId.size() <= 128
+        && data.createdAt is timestamp;
+    }
+
+    function isValidDesignerInfo(data, infoId) {
+      return data.keys().hasAll(['id', 'nameBn', 'nameEn', 'designationBn', 'designationEn', 'mobile', 'aboutBn', 'aboutEn', 'visionBn', 'visionEn', 'missionBn', 'missionEn', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'nameBn', 'nameEn', 'designationBn', 'designationEn', 'mobile', 'email', 'aboutBn', 'aboutEn', 'visionBn', 'visionEn', 'missionBn', 'missionEn', 'updatedBy', 'updatedAt'])
+        && data.id is string && data.id == infoId && data.id.size() <= 64
+        && data.nameBn is string && data.nameBn.size() <= 140
+        && data.nameEn is string && data.nameEn.size() <= 140
+        && data.designationBn is string && data.designationBn.size() <= 160
+        && data.designationEn is string && data.designationEn.size() <= 160
+        && data.mobile is string && data.mobile.size() <= 60
+        && isOptionalString(data, 'email', 200)
+        && data.aboutBn is string && data.aboutBn.size() <= 2000
+        && data.aboutEn is string && data.aboutEn.size() <= 2000
+        && data.visionBn is string && data.visionBn.size() <= 1000
+        && data.visionEn is string && data.visionEn.size() <= 1000
+        && data.missionBn is string && data.missionBn.size() <= 1000
+        && data.missionEn is string && data.missionEn.size() <= 1000
+        && isOptionalString(data, 'updatedBy', 128)
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidApiUsageLog(data, logId) {
+      return data.keys().hasAll(['id', 'userId', 'service', 'status', 'charsCount', 'detail', 'createdAt'])
+        && data.keys().hasOnly(['id', 'userId', 'service', 'status', 'charsCount', 'detail', 'createdAt'])
+        && data.id is string && data.id == logId && data.id.size() <= 128
+        && data.userId is string && data.userId == request.auth.uid && data.userId.size() <= 128
+        && data['service'] in ['translate', 'dictionary']
+        && data.status in ['success', 'error', 'setup_required']
+        && data.charsCount is number && data.charsCount >= 0
+        && data.detail is string && data.detail.size() <= 400
+        && data.createdAt is timestamp;
+    }
+
+    function isValidUserActivityLog(data, logId) {
+      return data.keys().hasAll(['id', 'userId', 'action', 'module', 'summary', 'createdAt'])
+        && data.keys().hasOnly(['id', 'userId', 'action', 'module', 'summary', 'createdAt'])
+        && data.id is string && data.id == logId && data.id.size() <= 128
+        && data.userId is string && data.userId == request.auth.uid && data.userId.size() <= 128
+        && data.action is string && data.action.size() <= 80
+        && data.module is string && data.module.size() <= 60
+        && data.summary is string && data.summary.size() <= 300
+        && data.createdAt is timestamp;
+    }
+
+    // =========================================================================
+    // Collection Rules
+    // =========================================================================
+
+    // Users (PII Protected)
+    match /users/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if isAdmin();
+      allow create: if isValidId(userId)
+        && isVerifiedUser()
+        && isOwner(userId)
+        && isValidUserProfile(incoming(), userId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && (
+          (
+            incoming().role in ['user', 'engineer']
+            && incoming().status == 'active'
+            && (!('accountType' in incoming()) || incoming().accountType == 'free')
+            && !('storageLimitMb' in incoming())
+          ) ||
+          isAdmin()
+        );
+      allow update: if isValidId(userId)
+        && isVerifiedUser()
+        && isValidUserProfile(incoming(), userId)
+        && incoming().uid == existing().uid
+        && incoming().email == existing().email
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin() ||
+          (
+            isOwner(userId)
+            && incoming().role == existing().role
+            && incoming().status == existing().status
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'displayName', 'photoURL', 'language', 'theme', 'primaryColor', 'secondaryColor', 'themePreset', 'timezone',
+              'mobile', 'dateOfBirth', 'gender', 'country', 'division', 'district', 'city', 'address',
+              'educationLevel', 'institutionName', 'department', 'subject', 'classOrSemester', 'passingYear', 'qualification',
+              'profession', 'jobTitle', 'companyName', 'workDepartment', 'workExperience', 'skills', 'specialization', 'engineeringDiscipline', 'designation', 'licenseNumber',
+              'loginCount', 'lastLoginAtIso', 'deletionRequested', 'deletionRequestedAtIso',
+              'defaultCalculator', 'preferredUnitSystem', 'inAppNotifications', 'emailNotifications', 'profileVisibility',
+              'updatedAt'
+            ])
+          )
+        );
+      allow delete: if isValidId(userId) && isAdmin();
+    }
+
+    // Admin registry
+    match /admins/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if isAdmin();
+      allow create: if isValidId(userId)
+        && isAdmin()
+        && isValidAdminMarker(incoming(), userId)
+        && incoming().createdAt == request.time;
+      allow update: if false;
+      allow delete: if isValidId(userId) && isAdmin();
+    }
+
+    // Roles
+    match /roles/{roleId} {
+      allow get: if isValidId(roleId) && isSignedIn();
+      allow list: if isSignedIn();
+      allow create, update: if isValidId(roleId)
+        && isAdmin()
+        && isValidRoleDefinition(incoming(), roleId)
+        && incoming().updatedAt == request.time;
+      allow delete: if isValidId(roleId) && isAdmin();
+    }
+
+    // Categories (Public enabled read, Admin full access)
+    match /categories/{categoryId} {
+      allow get: if isValidId(categoryId) && (existing().enabled == true || isAdmin());
+      allow list: if resource.data.enabled == true || isAdmin();
+      allow create, update: if isValidId(categoryId)
+        && isAdmin()
+        && isValidCategory(incoming(), categoryId)
+        && incoming().updatedAt == request.time;
+      allow delete: if isValidId(categoryId) && isAdmin();
+    }
+
+    // Calculators (Published read, Admin full access)
+    match /calculators/{calculatorId} {
+      allow get: if isValidId(calculatorId) && ((existing().enabled == true && existing().published == true) || isAdmin());
+      allow list: if (resource.data.enabled == true && resource.data.published == true) || isAdmin();
+      allow create, update: if isValidId(calculatorId)
+        && isAdmin()
+        && isValidCalculator(incoming(), calculatorId)
+        && incoming().updatedAt == request.time;
+      allow delete: if isValidId(calculatorId) && isAdmin();
+    }
+
+    // Standalone Formulas (Admin managed)
+    match /formulas/{formulaId} {
+      allow get: if isValidId(formulaId);
+      allow list: if isSignedIn();
+      allow create, update: if isValidId(formulaId)
+        && isAdmin()
+        && isValidFormulaRecord(incoming(), formulaId)
+        && incoming().updatedAt == request.time;
+      allow delete: if isValidId(formulaId) && isAdmin();
+    }
+
+    // Formula Versions (Admin or Custom Formula Owner history & rollback)
+    match /formulaVersions/{versionId} {
+      allow get: if isValidId(versionId) && (isAdmin() || (isSignedIn() && existing().createdBy == request.auth.uid));
+      allow list: if isAdmin() || (isSignedIn() && resource.data.createdBy == request.auth.uid);
+      allow create: if isValidId(versionId)
+        && (isAdmin() || (isVerifiedUser() && incoming().createdBy == request.auth.uid))
+        && isValidFormulaVersion(incoming(), versionId)
+        && incoming().createdAt == request.time;
+      allow update: if false;
+      allow delete: if isValidId(versionId) && (isAdmin() || (isSignedIn() && existing().createdBy == request.auth.uid));
+    }
+
+    // Units (Public enabled read, Admin write)
+    match /units/{unitId} {
+      allow get: if isValidId(unitId) && (existing().enabled == true || isAdmin());
+      allow list: if resource.data.enabled == true || isAdmin();
+      allow create, update: if isValidId(unitId)
+        && isAdmin()
+        && isValidUnit(incoming(), unitId)
+        && incoming().updatedAt == request.time;
+      allow delete: if isValidId(unitId) && isAdmin();
+    }
+
+    // Calculation History (Owner scoped, Admin readable for telemetry)
+    match /calculationHistory/{historyId} {
+      allow get: if isValidId(historyId) && isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isValidId(historyId)
+        && isVerifiedUser()
+        && isValidCalculationHistory(incoming(), historyId)
+        && incoming().createdAt == request.time;
+      allow update: if isValidId(historyId)
+        && isVerifiedUser()
+        && existing().userId == request.auth.uid
+        && isValidCalculationHistory(incoming(), historyId)
+        && incoming().userId == existing().userId
+        && incoming().createdAt == existing().createdAt
+        && incoming().diff(existing()).affectedKeys().hasOnly(['isSaved', 'note']);
+      allow delete: if isValidId(historyId) && isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
+    }
+
+    // Report Templates (Public enabled read, Admin write)
+    match /reportTemplates/{templateId} {
+      allow get: if isValidId(templateId) && (existing().enabled == true || isAdmin());
+      allow list: if resource.data.enabled == true || isAdmin();
+      allow create, update: if isValidId(templateId)
+        && isAdmin()
+        && isValidReportTemplate(incoming(), templateId)
+        && incoming().updatedAt == request.time;
+      allow delete: if isValidId(templateId) && isAdmin();
+    }
+
+    // Generated Reports (Owner scoped)
+    match /generatedReports/{reportId} {
+      allow get: if isValidId(reportId) && isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isValidId(reportId)
+        && isVerifiedUser()
+        && isValidGeneratedReport(incoming(), reportId)
+        && incoming().createdAt == request.time;
+      allow update: if isValidId(reportId)
+        && isVerifiedUser()
+        && existing().userId == request.auth.uid
+        && isValidGeneratedReport(incoming(), reportId)
+        && incoming().userId == existing().userId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['title', 'companyName', 'projectName', 'category', 'orientation', 'payload', 'pageDesign', 'blocks', 'pdfStoragePath', 'pdfDownloadUrl', 'pdfFileSizeBytes', 'updatedAt']);
+      allow delete: if isValidId(reportId) && isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
+    }
+
+    // Personal User Report Templates (Private to Owner unless shared)
+    match /userReportTemplates/{templateId} {
+      allow get: if isValidId(templateId) && isSignedIn() && (existing().userId == request.auth.uid || existing().sharedWithLink == true);
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isValidId(templateId)
+        && isVerifiedUser()
+        && isValidUserReportTemplate(incoming(), templateId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(templateId)
+        && isVerifiedUser()
+        && existing().userId == request.auth.uid
+        && isValidUserReportTemplate(incoming(), templateId)
+        && incoming().userId == existing().userId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['nameEn', 'nameBn', 'category', 'description', 'orientation', 'headerText', 'footerText', 'accentColor', 'pageDesign', 'blocks', 'sharedWithLink', 'updatedAt']);
+      allow delete: if isValidId(templateId) && isSignedIn() && existing().userId == request.auth.uid;
+    }
+
+    // Reusable User Report Sections (Strictly Private to Owner)
+    match /reportSections/{sectionId} {
+      allow get: if isValidId(sectionId) && isSignedIn() && existing().userId == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isValidId(sectionId)
+        && isVerifiedUser()
+        && isValidReportSection(incoming(), sectionId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(sectionId)
+        && isVerifiedUser()
+        && existing().userId == request.auth.uid
+        && isValidReportSection(incoming(), sectionId)
+        && incoming().userId == existing().userId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['title', 'category', 'blockData', 'updatedAt']);
+      allow delete: if isValidId(sectionId) && isSignedIn() && existing().userId == request.auth.uid;
+    }
+
+    // Reusable Report Assets (Strictly Private to Owner)
+    match /reportAssets/{assetId} {
+      allow get: if isValidId(assetId) && isSignedIn() && existing().userId == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isValidId(assetId)
+        && isVerifiedUser()
+        && isValidReportAsset(incoming(), assetId)
+        && incoming().createdAt == request.time;
+      allow update: if false;
+      allow delete: if isValidId(assetId) && isSignedIn() && existing().userId == request.auth.uid;
+    }
+
+    // Report Email Dispatch History (Strictly Private to Owner)
+    match /emailHistory/{emailId} {
+      allow get: if isValidId(emailId) && isSignedIn() && existing().userId == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isValidId(emailId)
+        && isVerifiedUser()
+        && isValidEmailHistory(incoming(), emailId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(emailId)
+        && isVerifiedUser()
+        && existing().userId == request.auth.uid
+        && isValidEmailHistory(incoming(), emailId)
+        && incoming().userId == existing().userId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['deliveryStatus', 'providerMessageId', 'statusNote', 'errorDetail', 'sentAtIso', 'updatedAt']);
+      allow delete: if isValidId(emailId) && isSignedIn() && existing().userId == request.auth.uid;
+    }
+
+    // Global Report Settings (Public read, Admin write)
+    match /reportSettings/{settingId} {
+      allow get: if isValidId(settingId);
+      allow list: if false;
+      allow create, update: if isValidId(settingId)
+        && isAdmin()
+        && isValidReportSetting(incoming(), settingId)
+        && incoming().updatedAt == request.time;
+      allow delete: if false;
+    }
+
+    // Calendar Events (Owner scoped)
+    match /calendarEvents/{eventId} {
+      allow get: if isValidId(eventId) && isSignedIn() && existing().userId == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isValidId(eventId)
+        && isVerifiedUser()
+        && isValidCalendarEvent(incoming(), eventId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(eventId)
+        && isVerifiedUser()
+        && existing().userId == request.auth.uid
+        && isValidCalendarEvent(incoming(), eventId)
+        && incoming().userId == existing().userId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['title', 'description', 'date', 'time', 'repeat', 'attachedNoteId', 'category', 'updatedAt']);
+      allow delete: if isValidId(eventId) && isSignedIn() && existing().userId == request.auth.uid;
+    }
+
+    // Smart Reminders (Owner scoped)
+    match /reminders/{reminderId} {
+      allow get: if isValidId(reminderId) && isSignedIn() && existing().userId == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isValidId(reminderId)
+        && isVerifiedUser()
+        && isValidReminder(incoming(), reminderId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(reminderId)
+        && isVerifiedUser()
+        && existing().userId == request.auth.uid
+        && isValidReminder(incoming(), reminderId)
+        && incoming().userId == existing().userId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['title', 'description', 'date', 'time', 'repeat', 'customIntervalDays', 'priority', 'completed', 'location', 'notified', 'updatedAt']);
+      allow delete: if isValidId(reminderId) && isSignedIn() && existing().userId == request.auth.uid;
+    }
+
+    // Notifications (Owner scoped or Admin Broadcast)
+    match /notifications/{notificationId} {
+      allow get: if isValidId(notificationId) && isSignedIn() && (existing().userId == request.auth.uid || existing().userId == 'ALL' || isAdmin());
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || resource.data.userId == 'ALL');
+      allow create: if isValidId(notificationId)
+        && isVerifiedUser()
+        && isValidNotification(incoming(), notificationId)
+        && incoming().createdAt == request.time
+        && (incoming().userId == request.auth.uid || isAdmin());
+      allow update: if isValidId(notificationId)
+        && isVerifiedUser()
+        && existing().userId == request.auth.uid
+        && isValidNotification(incoming(), notificationId)
+        && incoming().userId == existing().userId
+        && incoming().createdAt == existing().createdAt
+        && incoming().diff(existing()).affectedKeys().hasOnly(['read']);
+      allow delete: if isValidId(notificationId) && isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
+    }
+
+    // Personal Notes (Strictly Private to Owner)
+    match /personalNotes/{noteId} {
+      allow get: if isValidId(noteId) && isSignedIn() && existing().userId == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isValidId(noteId)
+        && isVerifiedUser()
+        && isValidPersonalNote(incoming(), noteId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(noteId)
+        && isVerifiedUser()
+        && existing().userId == request.auth.uid
+        && isValidPersonalNote(incoming(), noteId)
+        && incoming().userId == existing().userId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['title', 'content', 'category', 'pinned', 'date', 'imageDataUrl', 'locationLabel', 'latitude', 'longitude', 'linkedEventId', 'linkedCalculationId', 'updatedAt']);
+      allow delete: if isValidId(noteId) && isSignedIn() && existing().userId == request.auth.uid;
+    }
+
+    // App Settings (Public read, Admin write)
+    match /appSettings/{settingId} {
+      allow get: if isValidId(settingId);
+      allow list: if false;
+      allow create, update: if isValidId(settingId)
+        && isAdmin()
+        && isValidAppSetting(incoming(), settingId)
+        && incoming().updatedAt == request.time;
+      allow delete: if false;
+    }
+
+    // Audit Logs (Admin read & append-only)
+    match /auditLogs/{logId} {
+      allow get: if isValidId(logId) && isAdmin();
+      allow list: if isAdmin();
+      allow create: if isValidId(logId)
+        && isAdmin()
+        && isValidAuditLog(incoming(), logId)
+        && incoming().createdAt == request.time;
+      allow update, delete: if false;
+    }
+
+    // PDF Documents (Private to Owner unless sharing is explicitly enabled)
+    match /pdfDocuments/{docId} {
+      allow get: if isValidId(docId) && isSignedIn() && (existing().userId == request.auth.uid || existing().sharedWithLink == true);
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isValidId(docId)
+        && isVerifiedUser()
+        && isValidPdfDocument(incoming(), docId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(docId)
+        && isVerifiedUser()
+        && existing().userId == request.auth.uid
+        && isValidPdfDocument(incoming(), docId)
+        && incoming().userId == existing().userId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['title', 'category', 'specialty', 'fileSizeBytes', 'pageCount', 'ocrPagesCount', 'processingStatus', 'processingProgress', 'processingError', 'storagePath', 'downloadUrl', 'sourceType', 'sourceUrl', 'sourceUrls', 'mimeType', 'documentType', 'summaryEn', 'summaryBn', 'keyFindings', 'extractedNumbers', 'extractedFormulas', 'extractedSpecs', 'extractedTables', 'warnings', 'sharedWithLink', 'folderId', 'updatedAt']);
+      allow delete: if isValidId(docId) && isSignedIn() && existing().userId == request.auth.uid;
+
+      // Page Subcollection (Master Gate synced with parent PDF document)
+      match /pages/{pageId} {
+        allow get: if isValidId(docId) && isValidId(pageId) && isSignedIn() && (
+          existing().userId == request.auth.uid ||
+          get(/databases/$(database)/documents/pdfDocuments/$(docId)).data.sharedWithLink == true
+        );
+        allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+        allow create: if isValidId(docId)
+          && isValidId(pageId)
+          && isVerifiedUser()
+          && isValidPdfPage(incoming(), docId, pageId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && get(/databases/$(database)/documents/pdfDocuments/$(docId)).data.userId == request.auth.uid;
+        allow update: if isValidId(docId)
+          && isValidId(pageId)
+          && isVerifiedUser()
+          && existing().userId == request.auth.uid
+          && isValidPdfPage(incoming(), docId, pageId)
+          && incoming().documentId == existing().documentId
+          && incoming().userId == existing().userId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['text', 'isScanned', 'ocrApplied', 'diagramSummary', 'thumbnailDataUrl', 'updatedAt']);
+        allow delete: if isValidId(docId) && isValidId(pageId) && isSignedIn() && existing().userId == request.auth.uid;
+      }
+    }
+
+    // PDF Q&A Conversations (Strictly Private to Owner)
+    match /pdfChats/{chatId} {
+      allow get: if isValidId(chatId) && isSignedIn() && existing().userId == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isValidId(chatId)
+        && isVerifiedUser()
+        && isValidPdfChat(incoming(), chatId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(chatId)
+        && isVerifiedUser()
+        && existing().userId == request.auth.uid
+        && isValidPdfChat(incoming(), chatId)
+        && incoming().userId == existing().userId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['title', 'documentIds', 'messages', 'updatedAt']);
+      allow delete: if isValidId(chatId) && isSignedIn() && existing().userId == request.auth.uid;
+    }
+
+    // PDF Multi-Document Comparisons (Strictly Private to Owner)
+    match /pdfComparisons/{compId} {
+      allow get: if isValidId(compId) && isSignedIn() && existing().userId == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isValidId(compId)
+        && isVerifiedUser()
+        && isValidPdfComparison(incoming(), compId)
+        && incoming().createdAt == request.time;
+      allow update: if false;
+      allow delete: if isValidId(compId) && isSignedIn() && existing().userId == request.auth.uid;
+    }
+
+    // Per-User AI Daily Usage Counters (Owner write, Owner & Admin read)
+    match /userAiUsage/{usageId} {
+      allow get: if isValidId(usageId) && isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isValidId(usageId)
+        && isVerifiedUser()
+        && isValidUserAiUsage(incoming(), usageId)
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(usageId)
+        && isVerifiedUser()
+        && existing().userId == request.auth.uid
+        && isValidUserAiUsage(incoming(), usageId)
+        && incoming().userId == existing().userId
+        && incoming().date == existing().date
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['analysisCount', 'questionCount', 'comparisonCount', 'updatedAt']);
+      allow delete: if isValidId(usageId) && isAdmin();
+    }
+
+    // =========================================================================
+    // Modules 1-6 Collection Rules
+    // =========================================================================
+
+    // Spreadsheets (Owner scoped unless sharedWithLink is enabled)
+    match /spreadsheets/{spreadsheetId} {
+      allow get: if isValidId(spreadsheetId) && isSignedIn() && (existing().userId == request.auth.uid || existing().sharedWithLink == true);
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isValidId(spreadsheetId)
+        && isVerifiedUser()
+        && isValidSpreadsheetWorkbook(incoming(), spreadsheetId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(spreadsheetId)
+        && isVerifiedUser()
+        && existing().userId == request.auth.uid
+        && isValidSpreadsheetWorkbook(incoming(), spreadsheetId)
+        && incoming().userId == existing().userId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['title', 'category', 'activeSheetId', 'sheets', 'sharedWithLink', 'updatedAt']);
+      allow delete: if isValidId(spreadsheetId) && isSignedIn() && existing().userId == request.auth.uid;
+    }
+
+    // Spreadsheet Templates (Public enabled read, Admin write)
+    match /spreadsheetTemplates/{templateId} {
+      allow get: if isValidId(templateId) && (existing().enabled == true || isAdmin());
+      allow list: if resource.data.enabled == true || isAdmin();
+      allow create, update: if isValidId(templateId)
+        && isAdmin()
+        && isValidSpreadsheetTemplate(incoming(), templateId)
+        && incoming().updatedAt == request.time;
+      allow delete: if isValidId(templateId) && isAdmin();
+    }
+
+    // Spreadsheet History (Owner scoped, append-only)
+    match /spreadsheetHistory/{historyId} {
+      allow get: if isValidId(historyId) && isSignedIn() && existing().userId == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isValidId(historyId)
+        && isVerifiedUser()
+        && isValidSpreadsheetHistory(incoming(), historyId)
+        && incoming().createdAt == request.time;
+      allow update: if false;
+      allow delete: if isValidId(historyId) && isSignedIn() && existing().userId == request.auth.uid;
+    }
+
+    // Student Presentations (Owner scoped unless sharedWithLink is enabled)
+    match /presentations/{presentationId} {
+      allow get: if isValidId(presentationId) && isSignedIn() && (existing().userId == request.auth.uid || existing().sharedWithLink == true);
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isValidId(presentationId)
+        && isVerifiedUser()
+        && isValidPresentation(incoming(), presentationId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(presentationId)
+        && isVerifiedUser()
+        && existing().userId == request.auth.uid
+        && isValidPresentation(incoming(), presentationId)
+        && incoming().userId == existing().userId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['title', 'topic', 'classLevel', 'subject', 'language', 'level', 'themeId', 'audience', 'purpose', 'slides', 'references', 'sharedWithLink', 'updatedAt']);
+      allow delete: if isValidId(presentationId) && isSignedIn() && existing().userId == request.auth.uid;
+    }
+
+    // Presentation Templates (Public enabled read, Admin write)
+    match /presentationTemplates/{templateId} {
+      allow get: if isValidId(templateId) && (existing().enabled == true || isAdmin());
+      allow list: if resource.data.enabled == true || isAdmin();
+      allow create, update: if isValidId(templateId)
+        && isAdmin()
+        && isValidPresentationTemplate(incoming(), templateId)
+        && incoming().updatedAt == request.time;
+      allow delete: if isValidId(templateId) && isAdmin();
+    }
+
+    // Presentation Slides (Owner scoped)
+    match /presentationSlides/{slideId} {
+      allow get: if isValidId(slideId) && isSignedIn() && existing().userId == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isValidId(slideId)
+        && isVerifiedUser()
+        && isValidPresentationSlideRecord(incoming(), slideId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(slideId)
+        && isVerifiedUser()
+        && existing().userId == request.auth.uid
+        && isValidPresentationSlideRecord(incoming(), slideId)
+        && incoming().userId == existing().userId
+        && incoming().presentationId == existing().presentationId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time;
+      allow delete: if isValidId(slideId) && isSignedIn() && existing().userId == request.auth.uid;
+    }
+
+    // Custom Engineering Formulas (Owner create/edit, Admin moderation/approval)
+    match /customFormulas/{formulaId} {
+      allow get: if isValidId(formulaId) && (
+        isAdmin() ||
+        (isSignedIn() && existing().userId == request.auth.uid) ||
+        (existing().enabled == true && existing().published == true && (
+          (existing().visibility == 'public' && existing().approvedByAdmin == true) ||
+          (isSignedIn() && existing().visibility == 'shared')
+        ))
+      );
+      allow list: if isAdmin() ||
+        (isSignedIn() && resource.data.userId == request.auth.uid) ||
+        (resource.data.enabled == true && resource.data.published == true && resource.data.visibility == 'public' && resource.data.approvedByAdmin == true);
+      allow create: if isValidId(formulaId)
+        && isVerifiedUser()
+        && isValidCustomFormula(incoming(), formulaId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin() ||
+          (incoming().userId == request.auth.uid && incoming().approvedByAdmin == false)
+        );
+      allow update: if isValidId(formulaId)
+        && isVerifiedUser()
+        && isValidCustomFormula(incoming(), formulaId)
+        && incoming().userId == existing().userId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin() ||
+          (
+            existing().userId == request.auth.uid &&
+            (incoming().approvedByAdmin == false || incoming().approvedByAdmin == existing().approvedByAdmin)
+          )
+        );
+      allow delete: if isValidId(formulaId) && (isAdmin() || (isSignedIn() && existing().userId == request.auth.uid));
+    }
+
+    // Custom Formula Test Cases (Owner scoped, Admin readable)
+    match /formulaTestCases/{testCaseId} {
+      allow get: if isValidId(testCaseId) && isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isValidId(testCaseId)
+        && isVerifiedUser()
+        && isValidFormulaTestCase(incoming(), testCaseId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(testCaseId)
+        && isVerifiedUser()
+        && existing().userId == request.auth.uid
+        && isValidFormulaTestCase(incoming(), testCaseId)
+        && incoming().userId == existing().userId
+        && incoming().formulaId == existing().formulaId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time;
+      allow delete: if isValidId(testCaseId) && (isAdmin() || (isSignedIn() && existing().userId == request.auth.uid));
+    }
+
+    // Custom Formula Categories (Public enabled read, Admin write)
+    match /formulaCategories/{categoryId} {
+      allow get: if isValidId(categoryId) && (existing().enabled == true || isAdmin());
+      allow list: if resource.data.enabled == true || isAdmin();
+      allow create, update: if isValidId(categoryId)
+        && isAdmin()
+        && isValidFormulaCategory(incoming(), categoryId)
+        && incoming().updatedAt == request.time;
+      allow delete: if isValidId(categoryId) && isAdmin();
+    }
+
+    // Class 1-10 School Formula Library (Verified & Published read, Admin CRUD)
+    match /schoolFormulaLibrary/{formulaId} {
+      allow get: if isValidId(formulaId) && ((existing().verified == true && existing().published == true) || isAdmin());
+      allow list: if (resource.data.verified == true && resource.data.published == true) || isAdmin();
+      allow create, update: if isValidId(formulaId)
+        && isAdmin()
+        && isValidSchoolFormula(incoming(), formulaId)
+        && incoming().updatedAt == request.time;
+      allow delete: if isValidId(formulaId) && isAdmin();
+    }
+
+    // Class 1-10 Textbook References (Public read, Admin CRUD)
+    match /schoolFormulaReferences/{refId} {
+      allow get: if isValidId(refId);
+      allow list: if true;
+      allow create, update: if isValidId(refId)
+        && isAdmin()
+        && isValidSchoolFormulaReference(incoming(), refId)
+        && incoming().updatedAt == request.time;
+      allow delete: if isValidId(refId) && isAdmin();
+    }
+
+    // Cached Currency Exchange Rates (Public read, Verified user/Admin cache write)
+    match /currencyRates/{rateId} {
+      allow get: if isValidId(rateId);
+      allow list: if true;
+      allow create, update: if isValidId(rateId)
+        && isVerifiedUser()
+        && isValidCurrencyRateCache(incoming(), rateId)
+        && incoming().updatedAt == request.time;
+      allow delete: if isValidId(rateId) && isAdmin();
+    }
+
+    // Currency Conversion History (Owner scoped)
+    match /currencyHistory/{historyId} {
+      allow get: if isValidId(historyId) && isSignedIn() && existing().userId == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isValidId(historyId)
+        && isVerifiedUser()
+        && isValidCurrencyHistory(incoming(), historyId)
+        && incoming().createdAt == request.time;
+      allow update: if false;
+      allow delete: if isValidId(historyId) && isSignedIn() && existing().userId == request.auth.uid;
+    }
+
+    // Currency Settings (Public read, Admin write)
+    match /currencySettings/{settingId} {
+      allow get: if isValidId(settingId);
+      allow list: if false;
+      allow create, update: if isValidId(settingId)
+        && isAdmin()
+        && isValidCurrencySetting(incoming(), settingId)
+        && incoming().updatedAt == request.time;
+      allow delete: if false;
+    }
+
+    // Google Workspace Connections (Strictly Private to Owner, Zero Tokens Stored)
+    match /googleConnections/{connectionId} {
+      allow get: if isValidId(connectionId) && isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create, update: if isValidId(connectionId)
+        && isVerifiedUser()
+        && isValidGoogleConnection(incoming(), connectionId)
+        && incoming().updatedAt == request.time;
+      allow delete: if isValidId(connectionId) && isSignedIn() && existing().userId == request.auth.uid;
+    }
+
+    // Google Sync Jobs (Strictly Private to Owner)
+    match /googleSyncJobs/{jobId} {
+      allow get: if isValidId(jobId) && isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isValidId(jobId)
+        && isVerifiedUser()
+        && isValidGoogleSyncJob(incoming(), jobId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(jobId)
+        && isVerifiedUser()
+        && existing().userId == request.auth.uid
+        && isValidGoogleSyncJob(incoming(), jobId)
+        && incoming().userId == existing().userId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time;
+      allow delete: if isValidId(jobId) && isSignedIn() && existing().userId == request.auth.uid;
+    }
+
+    // Google Sync Execution Logs (Owner scoped, Admin readable, append-only)
+    match /googleSyncLogs/{logId} {
+      allow get: if isValidId(logId) && isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isValidId(logId)
+        && isVerifiedUser()
+        && isValidGoogleSyncLog(incoming(), logId)
+        && incoming().createdAt == request.time;
+      allow update: if false;
+      allow delete: if isValidId(logId) && isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
+    }
+
+    // Automatic Update Schedules (Strictly Private to Owner)
+    match /updateSchedules/{scheduleId} {
+      allow get: if isValidId(scheduleId) && isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create, update: if isValidId(scheduleId)
+        && isVerifiedUser()
+        && isValidUpdateSchedule(incoming(), scheduleId)
+        && incoming().updatedAt == request.time;
+      allow delete: if isValidId(scheduleId) && isSignedIn() && existing().userId == request.auth.uid;
+    }
+
+    // Automatic Update Execution Logs (Owner scoped, Admin readable, append-only)
+    match /updateLogs/{logId} {
+      allow get: if isValidId(logId) && isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isValidId(logId)
+        && isVerifiedUser()
+        && isValidUpdateLog(incoming(), logId)
+        && incoming().createdAt == request.time;
+      allow update: if false;
+      allow delete: if isValidId(logId) && isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
+    }
+
+    // User Exports Archive (Owner scoped)
+    match /userExports/{exportId} {
+      allow get: if isValidId(exportId) && isSignedIn() && existing().userId == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isValidId(exportId)
+        && isVerifiedUser()
+        && isValidUserExport(incoming(), exportId)
+        && incoming().createdAt == request.time;
+      allow update: if false;
+      allow delete: if isValidId(exportId) && isSignedIn() && existing().userId == request.auth.uid;
+    }
+
+    // =========================================================================
+    // Feature Expansion Collection Rules (Translate, Dictionary, Storage, Suggestions, Designer)
+    // =========================================================================
+
+    // PDF Folders (Strictly Private to Owner)
+    match /pdfFolders/{folderId} {
+      allow get: if isValidId(folderId) && isSignedIn() && existing().userId == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isValidId(folderId)
+        && isVerifiedUser()
+        && isValidPdfFolder(incoming(), folderId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(folderId)
+        && isVerifiedUser()
+        && existing().userId == request.auth.uid
+        && isValidPdfFolder(incoming(), folderId)
+        && incoming().userId == existing().userId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'color', 'updatedAt']);
+      allow delete: if isValidId(folderId) && isSignedIn() && existing().userId == request.auth.uid;
+    }
+
+    // User PDF Storage Usage (Owner write/read, Admin read)
+    match /userStorageUsage/{userId} {
+      allow get: if isValidId(userId) && isSignedIn() && (isOwner(userId) || isAdmin());
+      allow list: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow create, update: if isValidId(userId)
+        && isVerifiedUser()
+        && isOwner(userId)
+        && isValidUserStorageUsage(incoming(), userId)
+        && incoming().updatedAt == request.time;
+      allow delete: if isValidId(userId) && isAdmin();
+    }
+
+    // Translation History (Strictly Private to Owner)
+    match /translationHistory/{historyId} {
+      allow get: if isValidId(historyId) && isSignedIn() && existing().userId == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isValidId(historyId)
+        && isVerifiedUser()
+        && isValidTranslationHistory(incoming(), historyId)
+        && incoming().createdAt == request.time;
+      allow update: if isValidId(historyId)
+        && isVerifiedUser()
+        && existing().userId == request.auth.uid
+        && isValidTranslationHistory(incoming(), historyId)
+        && incoming().userId == existing().userId
+        && incoming().createdAt == existing().createdAt
+        && incoming().diff(existing()).affectedKeys().hasOnly(['isFavourite']);
+      allow delete: if isValidId(historyId) && isSignedIn() && existing().userId == request.auth.uid;
+    }
+
+    // Favourite Translations (Strictly Private to Owner)
+    match /favouriteTranslations/{favId} {
+      allow get: if isValidId(favId) && isSignedIn() && existing().userId == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isValidId(favId)
+        && isVerifiedUser()
+        && isValidFavouriteTranslation(incoming(), favId)
+        && incoming().createdAt == request.time;
+      allow update: if false;
+      allow delete: if isValidId(favId) && isSignedIn() && existing().userId == request.auth.uid;
+    }
+
+    // Dictionary Lookup History (Strictly Private to Owner)
+    match /dictionaryHistory/{historyId} {
+      allow get: if isValidId(historyId) && isSignedIn() && existing().userId == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isValidId(historyId)
+        && isVerifiedUser()
+        && isValidDictionaryHistory(incoming(), historyId)
+        && incoming().createdAt == request.time;
+      allow update: if false;
+      allow delete: if isValidId(historyId) && isSignedIn() && existing().userId == request.auth.uid;
+    }
+
+    // Favourite Vocabulary Words (Strictly Private to Owner)
+    match /favouriteWords/{favId} {
+      allow get: if isValidId(favId) && isSignedIn() && existing().userId == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isValidId(favId)
+        && isVerifiedUser()
+        && isValidFavouriteWord(incoming(), favId)
+        && incoming().createdAt == request.time;
+      allow update: if false;
+      allow delete: if isValidId(favId) && isSignedIn() && existing().userId == request.auth.uid;
+    }
+
+    // Calculator History (Normal, Scientific & Engineering - Owner write, Admin readable)
+    match /calculatorHistory/{historyId} {
+      allow get: if isValidId(historyId) && isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isValidId(historyId)
+        && isVerifiedUser()
+        && isValidCalculatorHistory(incoming(), historyId)
+        && incoming().createdAt == request.time;
+      allow update: if false;
+      allow delete: if isValidId(historyId) && isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
+    }
+
+    // Suggestions & Feedback (Signed-in public board OR Owner private OR Admin)
+    match /suggestions/{suggestionId} {
+      allow get: if isValidId(suggestionId) && isSignedIn() && (existing().visibility == 'public' || existing().userId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.visibility == 'public' || resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isValidId(suggestionId)
+        && isVerifiedUser()
+        && isValidSuggestion(incoming(), suggestionId)
+        && incoming().userId == request.auth.uid
+        && incoming().status == 'Submitted'
+        && incoming().voteCount == 0
+        && !('adminReply' in incoming())
+        && !('internalNote' in incoming())
+        && !('isImportant' in incoming())
+        && !('isDevelopmentTask' in incoming())
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(suggestionId)
+        && isVerifiedUser()
+        && isValidSuggestion(incoming(), suggestionId)
+        && incoming().userId == existing().userId
+        && incoming().createdAt == existing().createdAt
+        && (
+          (
+            isAdmin()
+            && incoming().updatedAt == request.time
+            && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'adminReply', 'internalNote', 'isImportant', 'isDevelopmentTask', 'updatedAt'])
+          ) ||
+          (
+            existing().visibility == 'public'
+            && incoming().updatedAt == existing().updatedAt
+            && incoming().diff(existing()).affectedKeys().hasOnly(['voteCount'])
+            && (incoming().voteCount == existing().voteCount + 1 || incoming().voteCount == existing().voteCount - 1)
+          )
+        );
+      allow delete: if isValidId(suggestionId) && isAdmin();
+    }
+
+    // Suggestion Votes (1 vote per user per suggestion)
+    match /suggestionVotes/{voteId} {
+      allow get: if isValidId(voteId) && isSignedIn() && existing().userId == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isValidId(voteId)
+        && isVerifiedUser()
+        && isValidSuggestionVote(incoming(), voteId)
+        && voteId == (incoming().suggestionId + '_' + request.auth.uid)
+        && incoming().createdAt == request.time
+        && exists(/databases/$(database)/documents/suggestions/$(incoming().suggestionId));
+      allow update: if false;
+      allow delete: if isValidId(voteId) && isSignedIn() && existing().userId == request.auth.uid;
+    }
+
+    // Designer Information (Public get, Admin write)
+    match /designerInformation/{infoId} {
+      allow get: if isValidId(infoId);
+      allow list: if false;
+      allow create, update: if isValidId(infoId)
+        && isAdmin()
+        && isValidDesignerInfo(incoming(), infoId)
+        && incoming().updatedAt == request.time;
+      allow delete: if false;
+    }
+
+    // API Usage Logs (Owner create, Owner or Admin read)
+    match /apiUsageLogs/{logId} {
+      allow get: if isValidId(logId) && isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isValidId(logId)
+        && isVerifiedUser()
+        && isValidApiUsageLog(incoming(), logId)
+        && incoming().createdAt == request.time;
+      allow update: if false;
+      allow delete: if isValidId(logId) && isAdmin();
+    }
+
+    // User Activity Logs (Owner create, Owner or Admin read)
+    match /userActivityLogs/{logId} {
+      allow get: if isValidId(logId) && isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isValidId(logId)
+        && isVerifiedUser()
+        && isValidUserActivityLog(incoming(), logId)
+        && incoming().createdAt == request.time;
+      allow update: if false;
+      allow delete: if isValidId(logId) && isAdmin();
+    }
+  }
+}
